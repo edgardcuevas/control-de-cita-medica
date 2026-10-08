@@ -24,18 +24,5 @@
         "motivo": "consulta mensual",
         "observaciones": "ninguna",
         "estado": "Realizada"
-    },
-    {
-        "paciente": "Juan Alfonso Cortes Cortes",
-        "documento_paciente": "Juan",
-        "medico": "Marlon Surtiava",
-        "especialidad": "cirujano",
-        "modulo": "modulo 3",
-        "fecha": "09/12/2026",
-        "hora": "03:00",
-        "tipo": "presencial",
-        "motivo": "revision",
-        "observaciones": "ninguna",
-        "estado": "Pendiente"
     }
 ]

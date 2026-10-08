@@ -145,6 +145,43 @@ class App(tk.Tk):
             frame.pack_propagate(False)
         return frame
 
+    def confirmar_eliminacion(self, titulo, mensaje):
+        win = tk.Toplevel(self)
+        win.title(titulo)
+        win.geometry("430x210")
+        win.resizable(False, False)
+        win.configure(bg=BG)
+        win.transient(self)
+        win.grab_set()
+
+        tk.Label(win, text=titulo, bg=BG, fg=TEXT,
+                 font=(FONT, 13, "bold")).pack(anchor="w", padx=22, pady=(18, 8))
+        tk.Label(win, text=mensaje, bg=BG, fg="#586575",
+                 font=(FONT, 9), justify="left", wraplength=385).pack(
+                     anchor="w", padx=22, fill="x")
+        tk.Label(win, text="Esta acción no se puede deshacer.",
+                 bg=BG, fg=MUTED, font=(FONT, 8)).pack(
+                     anchor="w", padx=22, pady=(8, 0))
+
+        respuesta = {"confirmada": False}
+
+        def confirmar():
+            respuesta["confirmada"] = True
+            win.destroy()
+
+        acciones = tk.Frame(win, bg=BG)
+        acciones.pack(side="bottom", fill="x", padx=16, pady=14)
+        tk.Button(acciones, text="Eliminar", command=confirmar,
+                  bg=RED, fg="white", activebackground=RED_BG,
+                  relief="flat", bd=0, padx=13, pady=6,
+                  font=(FONT, 8, "bold")).pack(side="right", padx=(6, 0))
+        tk.Button(acciones, text="Cancelar", command=win.destroy,
+                  bg=WHITE, fg="#657183", relief="solid", bd=1,
+                  padx=12, pady=5, font=(FONT, 8)).pack(side="right")
+        win.protocol("WM_DELETE_WINDOW", win.destroy)
+        win.wait_window()
+        return respuesta["confirmada"]
+
     def stat_card(self, parent, title, value, note):
         f = self.card(parent)
         f.pack(side="left", fill="both", expand=True, padx=5)
@@ -193,23 +230,49 @@ class App(tk.Tk):
                           "Ver todas", self.show_citas)
         self.citas_tree(panel, cs[-5:] if cs else [])
 
-    def citas_tree(self, parent, datos, allow_double=True):
+    def citas_tree(self, parent, datos, allow_double=True, allow_delete=False):
         cols = ("Paciente", "Médico", "Fecha", "Hora", "Estado")
+        if allow_delete:
+            cols += ("Acción",)
         tree = ttk.Treeview(parent, columns=cols, show="headings", selectmode="browse")
-        widths = {"Paciente":230,"Médico":190,"Fecha":100,"Hora":80,"Estado":100}
+        widths = {
+            "Paciente": 230, "Médico": 190, "Fecha": 100, "Hora": 80,
+            "Estado": 100, "Acción": 54,
+        }
         for c in cols:
-            tree.heading(c, text=c.upper())
-            tree.column(c, width=widths[c], anchor="w")
+            tree.heading(c, text="×" if c == "Acción" else c.upper())
+            tree.column(c, width=widths[c],
+                        anchor="center" if c == "Acción" else "w",
+                        stretch=c != "Acción")
         for i, c in enumerate(datos):
-            tree.insert("", "end", iid=str(i), values=(
-                c["paciente"], c["medico"], c["fecha"], c["hora"], c.get("estado","Pendiente")
-            ))
+            valores = (
+                c["paciente"], c["medico"], c["fecha"], c["hora"],
+                c.get("estado", "Pendiente"),
+            )
+            if allow_delete:
+                valores += ("×",)
+            tree.insert("", "end", iid=str(i), values=valores)
         tree.pack(fill="both", expand=True, padx=10, pady=(0,10))
         if allow_double:
-            tree.bind("<Double-1>", lambda e: self.open_cita_from_tree(tree, datos))
+            tree.bind("<Double-1>", lambda e: self.open_cita_from_tree(tree, datos, e))
+        if allow_delete:
+            tree.bind(
+                "<Button-1>",
+                lambda event: self.eliminar_cita_desde_fila(tree, datos, event),
+            )
         return tree
 
-    def open_cita_from_tree(self, tree, datos):
+    def eliminar_cita_desde_fila(self, tree, datos, event):
+        if tree.identify_column(event.x) != "#6":
+            return
+        item = tree.identify_row(event.y)
+        if item and item.isdigit() and int(item) < len(datos):
+            self.eliminar_cita(datos[int(item)])
+        return "break"
+
+    def open_cita_from_tree(self, tree, datos, event=None):
+        if event and tree.identify_column(event.x) == "#6":
+            return
         sel = tree.selection()
         if not sel: return
         local = int(sel[0])
@@ -229,15 +292,61 @@ class App(tk.Tk):
                        "＋ Registrar paciente", self.show_nuevo_paciente)
         panel = self.card(self.content); panel.pack(fill="both", expand=True)
         self.panel_header(panel, "Pacientes registrados", f"{len(ps)} registros")
-        cols=("Paciente","Documento","Edad","Sexo","Teléfono","Sangre")
+        cols=("Paciente","Documento","Edad","Sexo","Teléfono","Sangre","Acción")
         tree=ttk.Treeview(panel,columns=cols,show="headings")
-        for c,w in zip(cols,(250,190,70,90,120,100)):
-            tree.heading(c,text=c.upper()); tree.column(c,width=w,anchor="w")
-        for p in ps:
+        for c,w in zip(cols,(250,190,70,90,120,100,54)):
+            tree.heading(c,text="×" if c=="Acción" else c.upper())
+            tree.column(c,width=w,anchor="center" if c=="Acción" else "w",
+                        stretch=c!="Acción")
+        for i,p in enumerate(ps):
             tree.insert("", "end", values=(
                 f'{p["nombre"]} {p["apellido"]}',p["documento"],p["edad"],
-                p["sexo"],p["telefono"],p["tipo_sangre"]))
+                p["sexo"],p["telefono"],p["tipo_sangre"],"×"), iid=str(i))
         tree.pack(fill="both",expand=True,padx=10,pady=(0,10))
+        tree.bind(
+            "<Button-1>",
+            lambda event: self.eliminar_paciente_desde_fila(tree, ps, event),
+        )
+
+    def eliminar_paciente_desde_fila(self, tree, pacientes_lista, event):
+        if tree.identify_column(event.x) != "#7":
+            return
+        item = tree.identify_row(event.y)
+        if item and item.isdigit() and int(item) < len(pacientes_lista):
+            self.eliminar_paciente(pacientes_lista[int(item)])
+        return "break"
+
+    def eliminar_paciente(self, paciente):
+        nombre = f'{paciente["nombre"]} {paciente["apellido"]}'
+        try:
+            asociadas = citas.contar_citas_paciente(
+                paciente["documento"], nombre
+            )
+            if asociadas:
+                messagebox.showwarning(
+                    "No se puede eliminar",
+                    f"El paciente {nombre} tiene {asociadas} cita(s) "
+                    "registrada(s). Elimine primero las citas.",
+                    parent=self,
+                )
+                return
+            if not self.confirmar_eliminacion(
+                "Eliminar paciente",
+                f"¿Está seguro de que desea eliminar a:\n{nombre}?",
+            ):
+                return
+            if not pacientes.eliminar_paciente(paciente["documento"]):
+                messagebox.showwarning(
+                    "Paciente no encontrado",
+                    "El paciente ya no existe en el archivo.",
+                    parent=self,
+                )
+                return
+            self.show_pacientes()
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            messagebox.showerror(
+                "No se pudo eliminar el paciente", str(error), parent=self
+            )
 
     def show_medicos(self):
         self.clear(); self.set_active("medicos", "Médicos")
@@ -257,6 +366,41 @@ class App(tk.Tk):
                      font=(FONT,8)).pack(anchor="w",pady=3)
             tk.Label(info,text=f'Consultorio {m["consultorio"]} · {m["horario"]}',
                      bg=WHITE,fg=MUTED,font=(FONT,8)).pack(anchor="w")
+            tk.Button(
+                card, text="×", command=lambda medico=m: self.eliminar_medico(medico),
+                bg=WHITE, fg=RED, activebackground=RED_BG, relief="flat",
+                bd=0, cursor="hand2", padx=8, pady=4, font=(FONT, 12, "bold"),
+            ).pack(side="right", padx=10)
+
+    def eliminar_medico(self, medico):
+        nombre = f'{medico["nombre"]} {medico["apellido"]}'
+        try:
+            asociadas = citas.contar_citas_medico(nombre)
+            if asociadas:
+                messagebox.showwarning(
+                    "No se puede eliminar",
+                    f"El médico {nombre} tiene {asociadas} cita(s) "
+                    "registrada(s). Elimine primero las citas.",
+                    parent=self,
+                )
+                return
+            if not self.confirmar_eliminacion(
+                "Eliminar médico",
+                f"¿Está seguro de que desea eliminar al médico:\n{nombre}?",
+            ):
+                return
+            if not medicos.eliminar_medico(medico["documento"]):
+                messagebox.showwarning(
+                    "Médico no encontrado",
+                    "El médico ya no existe en el archivo.",
+                    parent=self,
+                )
+                return
+            self.show_medicos()
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            messagebox.showerror(
+                "No se pudo eliminar el médico", str(error), parent=self
+            )
 
     def show_citas(self):
         self.clear(); self.set_active("citas", "Todas las Citas")
@@ -279,7 +423,32 @@ class App(tk.Tk):
         cs=citas.cargar_citas()
         if filtro!="Todas": cs=[c for c in cs if c.get("estado") == filtro]
         self.panel_header(self.citas_panel,"Citas registradas",filtro)
-        self.citas_tree(self.citas_panel,cs)
+        self.citas_tree(self.citas_panel,cs,allow_delete=True)
+
+    def eliminar_cita(self, cita):
+        nombre = (
+            f'Paciente: {cita["paciente"]}\n'
+            f'Médico: {cita["medico"]}\n'
+            f'Fecha y hora: {cita["fecha"]} {cita["hora"]}'
+        )
+        if not self.confirmar_eliminacion(
+            "Eliminar cita",
+            f"¿Está seguro de que desea eliminar esta cita?\n\n{nombre}",
+        ):
+            return
+        try:
+            if not citas.eliminar_cita(cita):
+                messagebox.showwarning(
+                    "Cita no encontrada",
+                    "La cita ya no existe en el archivo.",
+                    parent=self,
+                )
+                return
+            self.filter_citas(self.current_filter.get())
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            messagebox.showerror(
+                "No se pudo eliminar la cita", str(error), parent=self
+            )
 
     def labeled_entry(self,parent,label,row,col,values=None):
         tk.Label(parent,text=label,bg=WHITE,fg="#697586",font=(FONT,8,"bold")).grid(

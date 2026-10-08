@@ -20,16 +20,5 @@
         "especialidad": "diabetologo",
         "consultorio": "4",
         "horario": "6 am a 3 pm"
-    },
-    {
-        "documento": "112233445566",
-        "nombre": "Marlon",
-        "apellido": "Surtiava",
-        "telefono": "76751188",
-        "correo": "marlon@test.com",
-        "modulo": "modulo 3",
-        "especialidad": "cirujano",
-        "consultorio": "5",
-        "horario": "3:00 a 18:00"
     }
 ]

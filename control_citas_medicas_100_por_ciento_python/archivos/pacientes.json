@@ -24,18 +24,5 @@
         "correo": "espeguerreri7675@gmail.com",
         "tipo_sangre": "O-",
         "seguro_medico": "no tiene"
-    },
-    {
-        "documento": "Juan",
-        "nombre": "Juan Alfonso Cortes",
-        "apellido": "Cortes",
-        "edad": 20,
-        "sexo": "masculino",
-        "fecha_nacimiento": "11/03/1999",
-        "telefono": "67543211",
-        "direccion": "urb san juan 1c n 1 c e",
-        "correo": "juan@test.com",
-        "tipo_sangre": "o+",
-        "seguro_medico": "no tinene"
     }
 ]

@@ -41,6 +41,8 @@ INICIAR.bat
 - Filtrar por estado
 - Ver detalle de una cita
 - Marcar cita como realizada
+- Eliminar pacientes, médicos y citas con confirmación
+- Bloquear la eliminación de pacientes o médicos con citas asociadas
 - Persistencia en JSON
 
 ## Tecnologías
