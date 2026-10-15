@@ -1,0 +1,582 @@
+================================================================================
+ESTRUCTURAS DE DATOS EN MEDICITAS — PILAS Y FILAS
+================================================================================
+
+Este documento explica qué estructuras de datos se implementaron en el
+sistema, en qué archivo y línea se aplicaron, y qué problema resuelven.
+
+Fecha: 15/10/2026
+Alcance: Fases 1, 2 y 3 (ordenamiento + deshacer + fila de espera)
+Carpeta: control_de_cita_medica_final
+
+
+--------------------------------------------------------------------------------
+1. SITUACIÓN INICIAL
+--------------------------------------------------------------------------------
+
+Antes de este trabajo el sistema NO tenía ninguna estructura de pila o fila
+implementada. Se verificaron los 10 archivos .py del proyecto y no se encontró
+ninguna coincidencia de: deque, queue, Pila, Cola, stack, FIFO, LIFO, heapq,
+sorted() ni .sort().
+
+Lo que existía eran listas planas de Python usadas como arreglos dinámicos:
+
+  · pacientes.py, medicos.py, citas.py  ->  .append() para agregar
+                                          .remove() / del lista[i] para borrar
+  · main.py                             ->  búsquedas con next() y for
+  · main.py (clear / clear_root)        ->  destruye widgets, NO es una pila:
+                                          no había forma de volver a la
+                                          pantalla anterior
+
+Tres problemas concretos derivados de eso:
+
+  a) El panel "Próximas citas" del Dashboard usaba  cs[-5:] , es decir
+     mostraba las ÚLTIMAS 5 citas dadas de alta, no las 5 más próximas en el
+     tiempo. Con datos de prueba quedaron desordenadas (ver sección 3.1).
+
+  b) Las 7 acciones del sistema (registrar, eliminar, agendar, marcar como
+     realizada) eran irreversibles. Un borrado accidental no tenía forma de
+     revertirse.
+
+  c) Si dos pacientes pedían la misma hora con el mismo médico, el segundo
+     simplemente se guardaba junto al primero y ambos quedaban "Pendiente".
+     El sistema no tenía dónde ponerlo ni se enteraba del choque. La pestaña
+     de filtro "Cancelada" existía, pero nada en el código la ponía nunca.
+
+
+--------------------------------------------------------------------------------
+2. ARCHIVO NUEVO: estructuras.py
+--------------------------------------------------------------------------------
+
+Contiene las tres estructuras de datos lineales, implementadas A MANO
+deliberadamente (sin collections.deque, sin heapq) para que el
+comportamiento LIFO / FIFO quede explícito y sea auditable.
+
+--------------------------------------------------------------------------------
+2.0 CLASE Pila  (LIFO — último en entrar, primero en salir)
+--------------------------------------------------------------------------------
+
+  __init__()      crea la pila vacía
+  apilar(x)       agrega un elemento en la cima
+  desapilar()     quita y devuelve la cima  (IndexError si está vacía)
+  cima()          devuelve la cima sin quitarla
+  esta_vacia()    True si no hay elementos
+  tamano()        cantidad de elementos
+  volcar()        copia de los elementos, del fondo a la cima
+  __len__()       atajo de tamano()
+
+  O(1)    apilar / desapilar
+  O(n)    volcar
+
+--------------------------------------------------------------------------------
+2.1 CLASE ColaPrioridad  (montículo binario mínimo)
+--------------------------------------------------------------------------------
+
+  __init__()               crea el montículo vacío
+  encolar(clave, valor)    inserta y reordena hacia arriba (sift up)
+  desencolar()             quita y devuelve el valor de MENOR clave (sift down)
+  cima()                   devuelve el valor de menor clave sin quitarlo
+  esta_vacia() / tamano() / __len__()
+
+  O(log n)   encolar
+  O(log n)   desencolar
+
+  La clave debe ser comparable con <. En este proyecto se usa una tupla de
+  5 elementos:  (año, mes, día, hora, posición)
+
+--------------------------------------------------------------------------------
+2.2 CLASE Cola  (FIFO — primero en entrar, primero en salir)
+--------------------------------------------------------------------------------
+
+  __init__()      crea la cola vacía
+  encolar(x)      agrega al final
+  desencolar()    quita y devuelve el primero  (IndexError si está vacía)
+  primero()       devuelve el primero sin quitarlo
+  esta_vacia() / tamano() / __len__()
+
+  O(1)    encolar
+  O(1)    desencolar
+
+  NOTA SOBRE EL RENDIMIENTO
+  El método desencolar() NO usa list.pop(0), que sería O(n) porque tiene que
+  desplazar todos los elementos. En su lugar mantiene un índice _cabeza que
+  avanza, y compacta la lista solo cuando el desperdicio llega a la mitad del
+  almacen. Así encolar y desencolar son ambos O(1).
+
+  USO REAL: la fila de espera de pacientes (sección 5) y la bitácora (4.2).
+
+
+--------------------------------------------------------------------------------
+3. FASE 1 — DÓNDE SE APLICARON
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+3.1 ColaPrioridad en el Dashboard — "Próximas citas"
+--------------------------------------------------------------------------------
+
+  ARCHIVO: main.py
+  MÉTODO: App.proximas_citas()  (nuevo)
+  USO:    App.show_dashboard() llama a  self.citas_tree(panel, self.proximas_citas(cs, 5))
+
+  QUÉ HACÍA ANTES
+      self.citas_tree(panel, cs[-5:] if cs else [])
+
+  QUÉ HACE AHORA
+      Construye una ColaPrioridad, encola cada cita con su clave
+      (año, mes, día, hora, posición) y desencola las 5 primeras, que son
+      siempre las 5 más próximas cronológicamente.
+
+  EFECTO VISIBLE EN LA APLICACIÓN
+      El panel "Próximas citas" del Dashboard ahora sale ordenado por fecha y
+      hora, no por orden de alta.
+
+  EJEMPLO REAL (6 citas, límite 5)
+
+      Antes — cs[-5:] — últimas 5 insertadas, desordenadas:
+         22/09/2026 10:00   B
+         22/09/2026 08:00   C
+         01/01/2027 23:00   D
+         05/03/2026 07:00   E
+         22/09/2026 10:00   F
+
+      Ahora — ColaPrioridad — las 5 más próximas:
+         05/03/2026 07:00   E
+         22/09/2026 08:00   C
+         22/09/2026 10:00   B
+         22/09/2026 10:00   F
+         09/12/2026 03:00   A
+
+  DETALLES DE LA IMPLEMENTACIÓN
+    · La clave tiene siempre 5 elementos comparables entre sí. Las citas con
+      fecha ilegible se mandan al final con la clave (9999, 12, 31, "23:59", i)
+      en lugar de romper el orden.
+    · El último elemento de la clave (la posición de alta) desempata las citas
+      que coinciden al mismo minuto, de modo que el resultado es estable.
+    · El método devuelve una lista normal, NO el montículo. Esto es
+      importante: citas_tree() usa el índice de la fila como identificador
+      (iid=str(i)) para abrir el detalle y para eliminar. Devolver una lista
+      mantiene ese contrato intacto y no rompe nada existente.
+
+--------------------------------------------------------------------------------
+3.2 Pila de navegación — botón "← Atrás"
+--------------------------------------------------------------------------------
+
+  ARCHIVO: main.py
+  ATRIBUTOS:  self.pila_vistas  (Pila)   y  self.vista_actual  (str),
+              inicializados en App.__init__
+  DICCIONARIO: self.vistas, creado en App.build_main_app(), asocia cada clave
+               ("dashboard", "pacientes", "medicos", "citas") con su método.
+               El menú lateral y el botón Atrás consultan este mismo diccionario.
+  MÉTODOS:  set_active()   apila la vista anterior
+            ir_atras()     desapila y vuelve a esa vista
+            actualizar_botones_estructuras()  habilita o deshabilita el botón
+
+  QUÉ HACE
+      Cada vez que el usuario cambia de sección, la vista de la que viene se
+      apila. El botón "← Atrás" de la barra superior desapila la última y la
+      vuelve a dibujar. Es el caso de uso LIFO más intuitivo de la aplicación:
+      se retrocede en el mismo orden en que se avanzó.
+
+  EJEMPLO
+      Dashboard → Pacientes → Citas → pulse "Atrás"
+        pila:  [Dashboard, Pacientes]
+        actual: Citas
+        Atrás → actual: Pacientes,  pila: [Dashboard]
+        Atrás → actual: Dashboard,  pila: []
+      Con la pila vacía el botón queda deshabilitado y no hace nada.
+
+  DETALLE IMPORTANTE — cómo se evita que la pila crezca sin control
+      Al pulsar "Atrás" se vuelve a invocar un método show_*(), que a su vez
+      llama a set_active(). Si no se hiciera nada, la vista de destino se
+      volvería a apilar y "Atrás" podría quedar atrapado en un bucle.
+
+      La solución elegida: ir_atras() fija self.vista_actual = destino ANTES
+      de invocar el show_*. Como set_active() solo apila cuando la vista nueva
+      es DISTINTA de la actual, no registra nada.
+
+      Además, refrescar la misma pantalla (por ejemplo después de eliminar un
+      registro) tampoco apila nada, por la misma comparación. Por eso el botón
+      "Atrás" no se llena de entradas repetidas.
+
+  ALCANCE DEL CAMBIO
+      Puramente aditivo: se agregan dos botones en la barra superior. Ningún
+      método existente cambia su firma ni su comportamiento.
+
+
+--------------------------------------------------------------------------------
+4. FASE 2 — DÓNDE SE APLICÓ
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+4.1 Pila de deshacer — botón "↶ Deshacer" y atajo Ctrl+Z
+--------------------------------------------------------------------------------
+
+  ARCHIVO NUEVO: historial.py
+    Mantiene dos estructuras a nivel de módulo:
+
+      _pila   Pila   con hasta 25 instantáneas de acciones para deshacer
+      _cola   Cola   con las líneas de bitácora pendientes de escribir
+
+  MÉTODOS PUBLICOS
+    registrar_accion(etiqueta, instantanea)   apila la instantánea
+    deshacer()                                desapila y devuelve la entrada
+    hay_pendientes()                          True si se puede deshacer
+    etiqueta_pendiente()                      nombre de la próxima acción
+    limpiar()                                 vacía la pila
+    volcar_bitacora()                         fuerza el volcado a disco
+
+  FORMATO DE CADA INSTANTÁNEA
+      {
+        "tipo":  "agregar" | "eliminar" | "estado",
+        "entidad": "cita" | "paciente" | "medico",
+        "posicion": <índice en el archivo>,
+        "datos": {...}        (en "agregar" y "eliminar")
+        "estado_anterior": "..."   (solo en "estado")
+      }
+
+  LA PILA SE PERSISTE
+    Cada apilado se guarda en archivos/historial.json con escritura atómica,
+    así que las acciones siguen siendo reversibles aunque se cierre y se vuelva
+    a abrir la aplicación. Al arrancar se recupera con _cargar().
+
+  LOS 7 PUNTOS DONDE SE APILA UNA INSTANTÁNEA
+    archivo        función                      etiqueta del botón
+    ------------   --------------------------   --------------------------
+    pacientes.py   registrar_paciente()        "Registrar paciente"
+    pacientes.py   eliminar_paciente()         "Eliminar paciente"
+    medicos.py     registrar_medico()          "Registrar médico"
+    medicos.py     eliminar_medico()           "Eliminar médico"
+    citas.py       agregar_cita()              "Agendar cita"
+    citas.py       eliminar_cita()             "Eliminar cita"
+    citas.py       marcar_como_realizada()     "Marcar cita como realizada"
+
+  LAS TRES FUNCIONES DE REVERSIÓN
+    Cada módulo de dominio tiene su propia función revertir(instantanea):
+
+      citas.py / pacientes.py / medicos.py
+
+    según el tipo de instantánea hace lo contrario de la acción original:
+      "agregar"  -> elimina el registro de esa posición
+      "eliminar" -> reinserta el registro en esa posición exacta
+      "estado"   -> devuelve el estado anterior (ej. "Realizada" -> "Pendiente")
+
+  CÓMO SE MUESTRA EN PANTALLA
+    ARCHIVO: main.py
+      MÉTODOS: App.deshacer_action()  y  App.refrescar_vista_actual()
+
+    · El botón muestra a qué acción va a revertir:
+        "↶ Deshacer: Eliminar cita"
+      y se deshabilita solo cuando la pila está vacía.
+    · Tras deshacer se vuelve a dibujar la vista en la que el usuario está,
+      sin tocar la pila de navegación (por eso existe refrescar_vista_actual(),
+      que llama al show_*() sin pasar por set_active()).
+    · Atajo de teclado: Ctrl+Z, registrado con bind_all en build_main_app().
+    · Si el registro cambió y ya no se puede revertir, avisa con un mensaje
+      claro en vez de fallar en silencio.
+
+  LÍMITE DE 25 ACCIONES
+    historial.LIMITE_PILA = 25. Cuando se supera, se descarta la más antigua.
+    Así la memoria y el archivo historial.json no crecen sin control.
+
+  ALCANCE DEL CAMBIO
+    Puramente aditivo. Los archivos pacientes.json, medicos.json y citas.json
+    NO cambian de formato: las instantáneas viven aparte, en historial.json.
+    No hace falta migrar ningún dato existente.
+
+
+--------------------------------------------------------------------------------
+4.2 Cola de bitácora
+--------------------------------------------------------------------------------
+
+  ARCHIVO: historial.py
+  ESTRUCTURA: la Cola _cola, alimentada desde registrar_accion()
+
+  QUÉ HACE
+      Cada mutación del sistema encola una línea con fecha y hora. Cuando se
+      acumulan 10 líneas (historial.LIMITE_COLA), la Cola se vacía de una vez
+      a archivos/bitacora.txt usando el mismo patrón FIFO.
+
+      El archivo queda así:
+
+        [2026-10-15 14:32:07] Registrar paciente - paciente
+        [2026-10-15 14:32:09] Agendar cita - cita
+        [2026-10-15 14:33:15] Acción deshecha - Eliminar cita
+
+  POR QUÉ UNA COLA Y NO ESCRITURA DIRECTA
+      Agrupar las escrituras en lotes evita abrir y cerrar el archivo en cada
+      acción. El orden se conserva porque la Cola entrega las líneas en el
+      mismo orden en que se encolaron.
+
+  La Cola también se vacía al cerrar sesión, desde App.logout().
+
+
+--------------------------------------------------------------------------------
+5. POR QUÉ historial.py NO IMPORTA citas / pacientes / medicos
+--------------------------------------------------------------------------------
+
+  Si historial.py importara los módulos de dominio, y esos módulos importan
+  historial.py (para apilar sus instantáneas), se formsaría un ciclo de
+  importaciones.
+
+  Por eso historial.py es deliberadamente AGNÓSTICO DEL DOMINIO:
+    · no importa citas, ni pacientes, ni medicos
+    · guarda diccionarios crudos, nunca objetos de dominio
+    · no sabe qué es una cita; solo mueve dicts de una Pila a un archivo
+
+  El despacho entre instantánea y módulo ocurre en main.py, en el diccionario:
+
+      modulos = {"cita": citas, "paciente": pacientes, "medico": medicos}
+
+  Así el módulo de dominio llama a historial sin que historial lo llame a él.
+
+  esperas.py sigue la misma regla: no importa citas ni main, solo estructuras.
+  Y citas.py sí importa esperas, en un solo sentido.
+
+
+================================================================================
+5. FASE 3 — COLA DE ESPERA (FIFO) DE PACIENTES POR ESPACIO DE AGENDA
+================================================================================
+
+--------------------------------------------------------------------------------
+5.1 EL PROBLEMA
+--------------------------------------------------------------------------------
+
+  Un espacio de agenda es la terna  (médico, fecha, hora) . Solo cabe una cita.
+
+  Antes, si dos pacientes pedían el 15/10/2026 a las 10:00 con el mismo médico,
+  ambos se guardaban con estado "Pendiente". El sistema no avisaba del choque:
+  los dos pacientes creían tener hora y el primero que llegara se quedaba
+  esperando. Peor aún, la pestaña de filtro "Cancelada" existía desde el
+  principio pero ningún código la ponía nunca, así que un espacio ocupado no
+  se podía liberar.
+
+--------------------------------------------------------------------------------
+5.2 ARCHIVO NUEVO: esperas.py
+--------------------------------------------------------------------------------
+
+  Calcula la fila de cada espacio. No escribe en disco: quien persiste es
+  citas.py.
+
+    ESTADO_ESPERA         constante "En espera"
+    ESTADOS_LIBERADOS     ("Realizada", "Cancelada") — los que liberan el espacio
+
+    clave_espacio(cita)                 -> (médico, fecha, hora) normalizada
+    espacio_ocupado(citas, nueva)      -> True si ese espacio ya está tomado
+    en_espera_del_espacio(citas, esp)  -> lista ordenada por posicion_espera
+    cola_espera(citas, espacio)         -> Cola() con esas citas, en orden
+    total_en_espera(citas, espacio)     -> cuántas personas hay detrás
+    posiciones_ocupadas(citas)          -> {espacio: (activa, [en espera])}
+    renumerar(citas, espacio)           -> recalcula las posiciones 1..n
+
+  El nombre del médico se normaliza con casefold() para que "ernesto gutierrez"
+  y "Ernesto Gutierrez" se reconozcan como el mismo espacio.
+
+--------------------------------------------------------------------------------
+5.3 QUÉ CAMBIÓ EN LOS DATOS
+--------------------------------------------------------------------------------
+
+  Solo se añadió un campo nuevo, opcional:
+
+    "posicion_espera": 2      <-- solo existe si estado == "En espera"
+
+  Los estados pasan a ser cuatro: Pendiente, En espera, Realizada, Cancelada.
+
+  COMPATIBILIDAD: NO hay migración. Las citas ya guardadas siguen igual. Al
+  leerlas, cargar_citas() normaliza: si el estado no es "En espera", borra
+  cualquier posicion_espera sobrante.
+
+--------------------------------------------------------------------------------
+5.4 LOS TRES MOMENTOS DONDE SE USA LA COLA
+--------------------------------------------------------------------------------
+
+  1) AGENDAR — citas.agregar_cita()
+
+     Si el espacio está libre, la cita queda "Pendiente" (ocupa el espacio).
+     Si está ocupado, NO se rechaza ni se pisa: se encola.
+
+       nueva["estado"] = "En espera"
+       nueva["posicion_espera"] = total_en_espera(citas, espacio) + 1
+
+     main.py avisa al usuario con un mensaje que dice en qué posición quedó.
+
+  2) ATENDER — citas.marcar_como_realizada()
+
+     Se marca la cita activa como "Realizada" y, si había fila, se saca la
+     PRIMERA de la Cola con cola.primero(), se pone "Pendiente", y se llama a
+     renumerar() para que las demás bajen un puesto (2 pasa a 1, 3 a 2...).
+
+     IMPORTANTE: solo se promueve si la cita atendida era la que ocupaba el
+     espacio (estado anterior "Pendiente"). Si el usuario atiende directamente
+     a alguien que estaba en la fila, la fila NO cambia, porque ese todavía no
+     es su turno.
+
+  3) CANCELAR — citas.cancelar_cita()   (función nueva)
+
+     Marca la cita como "Cancelada", libera el espacio y promueve igual que al
+     atender. Esto también arregla el filtro "Cancelada", que hasta ahora
+     estaba muerto.
+
+     Devuelve la instantánea de la cita promovida, para que la interfaz pueda
+     avisar: "Fulano pasó de la fila de espera a Pendiente".
+
+--------------------------------------------------------------------------------
+5.5 DESHACER CON PROMOCIONES — EL DETALLE DIFÍCIL
+--------------------------------------------------------------------------------
+
+  Aquí está el punto que más cuidado requirió. Al promover a la primera de la
+  fila, las demás se RENUMERAN. Si solo se guardara el estado de la promovida,
+  al deshacer quedarían dos citas con la misma posición:
+
+      antes de promover      después de promover      al deshacer (mal)
+      P2 = En espera, 1      P3 = En espera, 1        P2 = En espera, 1
+      P3 = En espera, 2      P4 = En espera, 2        P3 = En espera, 1  <- choque
+
+  Solución: la instantánea guarda una FOTO de toda la fila antes de promover.
+
+      "fila_antes": [ {"posicion": 1, "posicion_espera": 1},
+                      {"posicion": 2, "posicion_espera": 2} ]
+
+  Y citas.revertir(), para el tipo "estado", hace tres pasos en orden:
+    1. devuelve el estado original de la cita principal
+    2. devuelve la promovida a "En espera"
+    3. restaura las posiciones exactas de cada elemento de fila_antes
+
+  Con eso el archivo vuelve al estado previo, incluida la renumeración. Está
+  verificado con comparación completa de listas.
+
+--------------------------------------------------------------------------------
+5.6 LO QUE SE VE EN PANTALLA
+--------------------------------------------------------------------------------
+
+  main.py
+
+    · QUINTA TARJETA en el Dashboard: "En espera", con el total de personas
+      esperando en toda la clínica.
+
+    · PANEL "Filas de espera" en el Dashboard, debajo de "Próximas citas".
+      Solo aparece si hay alguien esperando. Una fila por espacio ocupado:
+        MEDICO | FECHA | HORA | TURNO | POSICION
+        Doc A | 15/10/2026 | 10:00 | 2 en fila | 1. Pac 2 > 2. Pac 3
+
+    · QUINTA PESTAÑA en el filtro de Citas: "En espera".
+
+    · COLUMNA ESTADO con la posición, por ejemplo "En espera · 2º".
+
+    · COLOR PROPIO en badge(): turquesa (CYAN_BG #E4F6F8 / CYAN #0E6E7A),
+      distinto del verde de Realizada, el amarillo de Pendiente y el rojo de
+      Cancelada.
+
+    · CAJA INFORMATIVA en el detalle de una cita en espera:
+        EN ESPERA · posición 1 de 2
+        Ocupan el turno: Maria Esperanza
+      Solo se puede cancelar; no aparece "Marcar como realizada", porque esa
+      cita todavía no tiene el espacio.
+
+    · BOTÓN "✕ Cancelar cita" en el detalle, tanto para citas Pendiente como
+      para citas En espera.
+
+    · MENSAJE al agendar: si el espacio estaba ocupado, avisa en qué posición
+      quedó y que pasará a Pendiente sola cuando se atienda la anterior.
+
+
+--------------------------------------------------------------------------------
+6. ARCHIVOS MODIFICADOS Y CREADOS
+--------------------------------------------------------------------------------
+
+  CREADOS
+    estructuras.py        Pila, Cola, ColaPrioridad
+    historial.py          pila de deshacer + cola de bitácora
+    esperas.py            cálculo de las filas de espera por espacio
+    ESTRUCTURAS.txt       este documento
+    archivos/historial.json   (se crea solo en el primer uso)
+    archivos/bitacora.txt      (se crea solo en el primer uso)
+
+  MODIFICADOS
+    main.py               imports; App.__init__; build_main_app();
+                         build_sidebar(); build_topbar(); set_active();
+                         logout(); show_dashboard(); show_citas();
+                         filter_citas(); badge(); show_detalle_cita();
+                         complete_cita(); show_nueva_cita(); save_cita();
+                         citas_tree()
+                         NUEVOS: proximas_citas(), ir_atras(),
+                                 deshacer_action(), refrescar_vista_actual(),
+                                 actualizar_botones_estructuras(),
+                                 etiqueta_estada(), panel_esperas(),
+                                 aviso_espera(), cancelar_cita()
+    citas.py              imports historial y esperas; normalización al leer;
+                         3 hooks de la pila de deshacer; función revertir()
+                         NUEVOS: cancelar_cita(), _foto_fila(),
+                                 _promover_siguiente()
+    pacientes.py          import historial; 2 hooks; nueva función revertir()
+    medicos.py            import historial; 2 hooks; nueva función revertir()
+    README.md             sección de estructuras de datos
+
+  SIN CAMBIOS
+    usuarios.py           no participa
+    almacenamiento.py    se reutiliza tal cual (ya hacía escrituras atómicas)
+    INICIAR.bat
+    archivos/pacientes.json, medicos.json, citas.json   (los datos no se migran)
+
+
+--------------------------------------------------------------------------------
+7. VERIFICACIÓN REALIZADA
+--------------------------------------------------------------------------------
+
+  · Los 8 archivos .py compilan sin errores.
+  · Pila: LIFO verificado, cima y volcar correctos, IndexError al desapilar
+    vacía.
+  · Cola: FIFO verificado en 1000 encolados, compaction de la lista correcta,
+    IndexError al desencolar vacía.
+  · ColaPrioridad: el orden de las claves se comparó contra sorted() en 500
+    casos aleatorios y coincidió siempre; encolado y desencolado son
+    consistentes.
+  · Las 7 acciones del sistema se deshacen correctamente y devuelven los
+    archivos al estado exacto anterior (comparación de listas completas).
+  · Se comprobó que una eliminación revertida se reinserta en su posición
+    original, no al final del archivo.
+  · Se verificó el orden LIFO: tres altas seguidas se deshacen en orden
+    inverso.
+  · Se verificó el límite de 25: apilando 30 acciones solo se deshacen 25.
+  · Prueba de interfaz real: construcción de la app, navegación
+    Dashboard → Pacientes → Citas → Atrás → Atrás, estados
+    habilitado/deshabilitado de los dos botones, y deshacer desde la interfaz.
+  · Todas las vistas y todos los filtros de citas se dibujan sin errores.
+
+  COLA DE ESPERA
+  · Espacio libre -> la cita queda "Pendiente" y ocupa el espacio.
+  · Espacio ocupado -> entra en la fila con posiciones 1, 2, 3... en orden.
+  · La Cola del espacio devuelve las citas en el mismo orden en que llegaron.
+  · Atender la cita activa promueve a la primera de la fila y renumera las
+    demás; se comprobó el 2 a 1 y el 3 a 2 de forma explícita.
+  · Atender toda la fila en cascada la agota sin errores.
+  · Otro horario es otro espacio: no genera fila.
+  · Un espacio liberado (Realizada o Cancelada) se puede volver a usar.
+  · Deshacer una promoción devuelve el archivo exacto, incluidas las
+    posiciones renumeradas. Verificado tanto al atender como al cancelar.
+  · Interfaz real: panel de filas del Dashboard, los 5 filtros, columna Estado
+    con la posición, caja informativa del detalle, botón cancelar y los
+    colores de los cuatro estados.
+
+  REGRESIÓN
+  · Las Fases 1 y 2 se volvieron a ejecutar al terminar la Fase 3 y siguen
+    funcionando exactamente igual.
+
+
+--------------------------------------------------------------------------------
+8. QUÉ NO SE IMPLEMENTÓ Y QUÉ FALTA
+
+  · No hay aviso de "este espacio ya está ocupado" al ABRIR el formulario de
+    nueva cita: el aviso sale al guardar. Se podría marcar en el ComboBox.
+  · La fila de espera es por espacio exacto (médico + fecha + hora). No existe
+    una fila más amplia por médico y día, que es lo que suele necesitar una
+    clínica real (el paciente espera cualquier hora de ese día).
+  · No hay aviso cuando el médico no tiene ninguna cita ese día: se permite
+    agendarla sin problema.
+  · No hay ordenamiento por otros criterios (por médico, por especialidad,
+    por estado). Solo se ordena por fecha.
+  · No hay "avanzar de posición" manual en la fila: el orden solo cambia
+    cuando alguien se atiende o se cancela.
+  · La pila de deshacer no recuerda acciones entre usuarios distintos: al
+    cerrar sesión se limpia (App.logout()).
+
+================================================================================

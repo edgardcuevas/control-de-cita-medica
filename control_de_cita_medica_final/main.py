@@ -5,6 +5,10 @@ import pacientes
 import medicos
 import citas
 import usuarios
+import historial
+import esperas
+from estructuras import Pila, ColaPrioridad
+from esperas import ESTADO_ESPERA
 
 # ============================================================
 # CONTROL DE CITAS MÉDICAS
@@ -25,6 +29,8 @@ YELLOW = "#956B08"
 YELLOW_BG = "#FFF4D8"
 RED = "#B33D48"
 RED_BG = "#FDEBED"
+CYAN = "#0E6E7A"
+CYAN_BG = "#E4F6F8"
 
 FONT = "Segoe UI"
 
@@ -44,6 +50,10 @@ class App(tk.Tk):
         self.style.map("Treeview", background=[("selected", BLUE_LIGHT)],
                        foreground=[("selected", TEXT)])
         self.current_user = None
+        # Pila de navegación: guarda las vistas visitadas para el botón "Atrás".
+        self.pila_vistas = Pila()
+        self.vista_actual = None
+        self.vistas = {}
         self.show_login()
 
     def clear_root(self):
@@ -231,6 +241,13 @@ class App(tk.Tk):
         self.sidebar.pack_propagate(False)
         self.body = tk.Frame(self, bg=BG)
         self.body.pack(side="left", fill="both", expand=True)
+        self.vistas = {
+            "dashboard": self.show_dashboard,
+            "pacientes": self.show_pacientes,
+            "medicos": self.show_medicos,
+            "citas": self.show_citas,
+        }
+        self.bind_all("<Control-z>", lambda _e: self.deshacer_action())
         self.build_sidebar()
         self.build_topbar()
         self.content = tk.Frame(self.body, bg=BG)
@@ -239,7 +256,11 @@ class App(tk.Tk):
 
     def logout(self):
         if messagebox.askyesno("Cerrar sesión", "¿Deseas cerrar tu sesión?"):
+            historial.volcar_bitacora()
+            historial.limpiar()
             self.current_user = None
+            self.pila_vistas = Pila()
+            self.vista_actual = None
             self.show_login()
 
     def build_sidebar(self):
@@ -256,14 +277,14 @@ class App(tk.Tk):
                  font=(FONT, 8)).pack(anchor="w")
 
         self.nav_buttons = {}
-        for key, label, symbol, command in [
-            ("dashboard", "Dashboard", "▦", self.show_dashboard),
-            ("pacientes", "Pacientes", "♙", self.show_pacientes),
-            ("medicos", "Médicos", "♙", self.show_medicos),
-            ("citas", "Citas", "▣", self.show_citas),
+        for key, label, symbol in [
+            ("dashboard", "Dashboard", "▦", ),
+            ("pacientes", "Pacientes", "♙"),
+            ("medicos", "Médicos", "♙"),
+            ("citas", "Citas", "▣"),
         ]:
             btn = tk.Button(self.sidebar, text=f"  {symbol}   {label}",
-                            command=command, anchor="w", relief="flat",
+                            command=self.vistas[key], anchor="w", relief="flat",
                             bd=0, cursor="hand2", padx=14, pady=9,
                             bg=WHITE, fg="#687486", activebackground=BLUE_LIGHT,
                             activeforeground=BLUE, font=(FONT, 9))
@@ -289,19 +310,105 @@ class App(tk.Tk):
                        highlightbackground=BORDER, highlightthickness=1)
         bar.pack(fill="x")
         bar.pack_propagate(False)
+
+        self.btn_atras = tk.Button(
+            bar, text="← Atrás", command=self.ir_atras, bg=WHITE, fg="#687486",
+            activebackground=BLUE_LIGHT, activeforeground=BLUE, relief="flat",
+            bd=0, cursor="hand2", font=(FONT, 8), state="disabled")
+        self.btn_atras.pack(side="left", padx=(14, 8), ipady=3)
+
+        self.btn_deshacer = tk.Button(
+            bar, text="↶ Deshacer", command=self.deshacer_action, bg=WHITE,
+            fg="#687486", activebackground=BLUE_LIGHT, activeforeground=BLUE,
+            relief="flat", bd=0, cursor="hand2", font=(FONT, 8), state="disabled")
+        self.btn_deshacer.pack(side="left", ipady=3)
+
+        tk.Frame(bar, bg=BORDER, width=1).pack(side="left", fill="y", pady=13)
+
         self.breadcrumb = tk.Label(bar, text="MedCheck  ›  Panel de Control",
                                    bg=WHITE, fg=MUTED, font=(FONT, 8))
-        self.breadcrumb.pack(side="left", padx=30)
+        self.breadcrumb.pack(side="left", padx=18)
         tk.Label(bar, text="♧", bg=WHITE, fg="#687486",
                  font=(FONT, 13)).pack(side="right", padx=28)
 
+    def actualizar_botones_estructuras(self):
+        """Habilita o deshabilita Atrás / Deshacer según el estado de las pilas."""
+        if not hasattr(self, "btn_atras"):
+            return
+        self.btn_atras.configure(
+            state="normal" if not self.pila_vistas.esta_vacia() else "disabled")
+        etiqueta = historial.etiqueta_pendiente()
+        if etiqueta is None:
+            self.btn_deshacer.configure(text="↶ Deshacer", state="disabled")
+        else:
+            self.btn_deshacer.configure(
+                text=f"↶ Deshacer: {etiqueta}", state="normal")
+
+    def ir_atras(self):
+        """Desapila la vista anterior y la vuelve a mostrar (comportamiento LIFO)."""
+        if self.pila_vistas.esta_vacia():
+            return
+        destino = self.pila_vistas.desapilar()
+        # Se fija la vista destino antes de invocar el show_*: así set_active
+        # detecta que no hubo cambio real y no apila una entrada de más.
+        self.vista_actual = destino
+        self.vistas[destino]()
+        self.actualizar_botones_estructuras()
+
+    def deshacer_action(self):
+        """Desapila la última acción y la revierte."""
+        entrada = historial.deshacer()
+        if entrada is None:
+            messagebox.showinfo(
+                "Nada que deshacer", "No hay acciones pendientes por deshacer.",
+                parent=self)
+            return
+        instantanea = entrada.get("instantanea", {})
+        entidad = instantanea.get("entidad")
+        modulos = {
+            "cita": citas,
+            "paciente": pacientes,
+            "medico": medicos,
+        }
+        modulo = modulos.get(entidad)
+        try:
+            revertido = modulo.revertir(instantanea) if modulo else False
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            messagebox.showerror(
+                "No se pudo deshacer", str(error), parent=self)
+            return
+        if not revertido:
+            messagebox.showwarning(
+                "No se pudo deshacer",
+                f"La acción «{entrada['etiqueta']}» ya no se puede revertir "
+                "porque el registro cambió.",
+                parent=self)
+        else:
+            historial.registrar_bitacora("Acción deshecha", entrada["etiqueta"])
+            messagebox.showinfo(
+                "Acción deshecha", f"Se revirtió: {entrada['etiqueta']}.",
+                parent=self)
+        self.refrescar_vista_actual()
+        self.actualizar_botones_estructuras()
+
+    def refrescar_vista_actual(self):
+        """Vuelve a dibujar la vista visible sin tocar la pila de navegación."""
+        if self.vista_actual:
+            self.vistas[self.vista_actual]()
+
     def set_active(self, key, title):
+        # Solo se apila cuando cambia la vista: evita crece la pila al
+        # refrescar o al eliminar un registro desde la misma pantalla.
+        if self.vista_actual is not None and self.vista_actual != key:
+            self.pila_vistas.apilar(self.vista_actual)
+        self.vista_actual = key
         for name, btn in self.nav_buttons.items():
             if name == key:
                 btn.configure(bg=BLUE_LIGHT, fg=BLUE)
             else:
                 btn.configure(bg=WHITE, fg="#687486")
         self.breadcrumb.configure(text=f"MedCheck  ›  {title}")
+        self.actualizar_botones_estructuras()
 
     def clear(self):
         for child in self.content.winfo_children():
@@ -400,10 +507,38 @@ class App(tk.Tk):
                       highlightthickness=0, padx=10, pady=5,
                       font=(FONT, 7)).pack(side="right")
 
+    def proximas_citas(self, citas, limite=5):
+        """Ordena las citas por fecha y hora usando una ColaPrioridad.
+
+        Antes se tomaban las últimas N insertadas (``cs[-5:]``), lo que mostraba
+        las citas más recientes en el orden de alta y no las más próximas.
+
+        La clave es siempre una tupla de 5 elementos comparables entre sí:
+        ``(año, mes, día, hora, posición)``. La posición al final desempata las
+        citas que coinciden al minuto, de modo que la más antigua se muestra
+        primero. Las citas con fecha ilegible se van al final sin romper el
+        orden.
+        """
+        cola = ColaPrioridad()
+        for indice, cita in enumerate(citas):
+            try:
+                fecha = datetime.strptime(str(cita.get("fecha", "")), "%d/%m/%Y")
+            except ValueError:
+                clave = (9999, 12, 31, "23:59", indice)
+            else:
+                clave = (fecha.year, fecha.month, fecha.day,
+                         str(cita.get("hora", "")) or "23:59", indice)
+            cola.encolar(clave, cita)
+        ordenadas = []
+        while not cola.esta_vacia() and len(ordenadas) < limite:
+            ordenadas.append(cola.desencolar())
+        return ordenadas
+
     def show_dashboard(self):
         self.clear(); self.set_active("dashboard", "Panel de Control")
         ps, ms, cs = pacientes.cargar_pacientes(), medicos.cargar_medicos(), citas.cargar_citas()
         pending = sum(c.get("estado") == "Pendiente" for c in cs)
+        en_espera = sum(c.get("estado") == ESTADO_ESPERA for c in cs)
         self.title_row("Panel de Control", "Resumen general del sistema de citas médicas",
                        "＋ Nueva cita", self.show_nueva_cita)
 
@@ -413,20 +548,56 @@ class App(tk.Tk):
         self.stat_card(stats, "Médicos", len(ms), "Activos en el sistema")
         self.stat_card(stats, "Citas totales", len(cs), "Historial registrado")
         self.stat_card(stats, "Citas pendientes", pending, "Requieren atención")
+        self.stat_card(stats, "En espera", en_espera, "En fila de espera")
 
         panel = self.card(self.content)
         panel.pack(fill="both", expand=True)
         self.panel_header(panel, "Próximas citas",
                           "Seguimiento de las citas registradas",
                           "Ver todas", self.show_citas)
-        self.citas_tree(panel, cs[-5:] if cs else [])
+        self.citas_tree(panel, self.proximas_citas(cs, 5))
+        self.panel_esperas(cs)
+
+    def panel_esperas(self, cs):
+        """Dibuja las filas de espera activas, tomadas de la Cola de cada espacio."""
+        filas = esperas.posiciones_ocupadas(cs)
+        con_gente = {k: v for k, v in filas.items() if v[1]}
+        if not con_gente:
+            return
+
+        panel = self.card(self.content)
+        panel.pack(fill="both", expand=True, pady=(16, 0))
+        self.panel_header(panel, "Filas de espera",
+                          "Pacientes esperando que se libere el espacio")
+
+        cols = ("Médico", "Fecha", "Hora", "Turno", "Posición")
+        tree = ttk.Treeview(panel, columns=cols, show="headings", selectmode="browse")
+        for c in cols:
+            tree.heading(c, text=c.upper())
+            tree.column(c, width=210 if c == "Médico" else 110, anchor="w")
+        fila_n = 0
+        for (medico, fecha, hora), (activa, en_fila) in con_gente.items():
+            tree.insert("", "end", iid=f"e{fila_n}", values=(
+                activa["medico"] if activa else f"{medico} (sin cita activa)",
+                fecha, hora, f"{len(en_fila)} en fila",
+                " > ".join(f"{c['posicion_espera']}. {c['paciente']}" for c in en_fila),
+            ))
+            fila_n += 1
+        tree.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+    def etiqueta_estada(self, cita):
+        """Texto de la columna Estado, con la posición si la cita está en espera."""
+        estado = cita.get("estado", "Pendiente")
+        if estado == ESTADO_ESPERA:
+            return f"{estado} · {cita.get('posicion_espera', '?')}º"
+        return estado
 
     def citas_tree(self, parent, datos, allow_double=True, allow_delete=False):
         cols = ("Paciente", "Médico", "Fecha", "Hora", "Estado")
         if allow_delete:
             cols += ("Acción",)
         tree = ttk.Treeview(parent, columns=cols, show="headings", selectmode="browse")
-        widths = {"Paciente":230,"Médico":190,"Fecha":100,"Hora":80,"Estado":100,"Acción":54}
+        widths = {"Paciente":230,"Médico":190,"Fecha":100,"Hora":80,"Estado":130,"Acción":54}
         for c in cols:
             tree.heading(c, text="×" if c=="Acción" else c.upper())
             tree.column(c, width=widths[c],
@@ -434,7 +605,8 @@ class App(tk.Tk):
                         stretch=c!="Acción")
         for i, c in enumerate(datos):
             valores = (
-                c["paciente"], c["medico"], c["fecha"], c["hora"], c.get("estado","Pendiente")
+                c["paciente"], c["medico"], c["fecha"], c["hora"],
+                self.etiqueta_estada(c)
             )
             if allow_delete:
                 valores += ("×",)
@@ -596,7 +768,7 @@ class App(tk.Tk):
                        "＋ Agendar cita", self.show_nueva_cita)
         tabs=tk.Frame(self.content,bg=BG); tabs.pack(fill="x",pady=(0,12))
         self.current_filter=tk.StringVar(value="Todas")
-        for f in ("Todas","Pendiente","Realizada","Cancelada"):
+        for f in ("Todas","Pendiente","En espera","Realizada","Cancelada"):
             tk.Button(tabs,text=f,command=lambda x=f:self.filter_citas(x),
                       relief="flat",bd=0,padx=12,pady=6,
                       bg=BLUE if f=="Todas" else WHITE,
@@ -747,7 +919,18 @@ class App(tk.Tk):
             "fecha":values["fecha"],"hora":values["hora"],"tipo":values["tipo"],
             "motivo":values["motivo"],"observaciones":values["observaciones"],
             "estado":"Pendiente"}
-        citas.agregar_cita(cita_data); win.destroy(); self.show_citas()
+        guardada = citas.agregar_cita(cita_data)
+        win.destroy()
+        if guardada.get("estado") == ESTADO_ESPERA:
+            messagebox.showwarning(
+                "Cita agregada a la fila de espera",
+                f"El espacio {values['fecha']} {values['hora']} de "
+                f"{values['medico']} ya está ocupado.\n\n"
+                f"La cita quedó en la posición {guardada['posicion_espera']} "
+                "de la fila. Cuando se atienda la cita anterior, esta pasará "
+                "automáticamente a Pendiente.",
+                parent=self)
+        self.show_citas()
 
     def show_detalle_cita(self,index):
         all_citas=citas.cargar_citas()
@@ -777,19 +960,81 @@ class App(tk.Tk):
             tk.Label(box,text=lab,bg="#FAFBFD",fg="#99A2AE",font=(FONT,7,"bold")).pack(anchor="w",padx=10,pady=(8,2))
             tk.Label(box,text=c[key],bg="#FAFBFD",fg="#586575",font=(FONT,9),
                      wraplength=540,justify="left").pack(anchor="w",padx=10,pady=(0,8))
+        if c.get("estado")==ESTADO_ESPERA:
+            self.aviso_espera(panel, c, all_citas)
+        acciones=tk.Frame(panel,bg=WHITE); acciones.pack(fill="x",padx=18,pady=15)
         if c.get("estado")=="Pendiente":
-            tk.Button(panel,text="✓  Marcar como realizada",
+            tk.Button(acciones,text="✓  Marcar como realizada",
                       command=lambda:self.complete_cita(index,win),
                       bg=BLUE,fg="white",relief="flat",bd=0,padx=14,pady=8,
-                      font=(FONT,8,"bold")).pack(anchor="e",padx=18,pady=15)
+                      font=(FONT,8,"bold")).pack(side="right")
+        if c.get("estado") in ("Pendiente", ESTADO_ESPERA):
+            tk.Button(acciones,text="✕  Cancelar cita",
+                      command=lambda:self.cancelar_cita(c,index,win),
+                      bg=WHITE,fg=RED,activebackground=RED_BG,relief="solid",bd=1,
+                      padx=14,pady=7,font=(FONT,8,"bold")).pack(side="right",padx=(0,8))
+
+    def aviso_espera(self, parent, cita, todas):
+        """Caja informativa con la posición en la fila y quién tiene el turno."""
+        espacio = esperas.clave_espacio(cita)
+        en_fila = esperas.en_espera_del_espacio(todas, espacio)
+        activa = next(
+            (x for x in todas
+             if esperas.clave_espacio(x) == espacio
+             and x.get("estado") not in ("Realizada","Cancelada",ESTADO_ESPERA)),
+            None,
+        )
+        caja=tk.Frame(parent,bg=CYAN_BG,highlightbackground="#BEE3E8",highlightthickness=1)
+        caja.pack(fill="x",padx=18,pady=5)
+        tk.Label(caja,text=f"EN ESPERA · posición {cita.get('posicion_espera','?')} de {len(en_fila)}",
+                 bg=CYAN_BG,fg=CYAN,font=(FONT,8,"bold")).pack(anchor="w",padx=11,pady=(8,2))
+        detalle = (f"Ocupan el turno: {activa['paciente']}"
+                   if activa
+                   else "El espacio está libre; se promoverá al cerrarse la cita activa.")
+        tk.Label(caja,text=detalle,bg=CYAN_BG,fg="#31595E",font=(FONT,8),
+                 wraplength=540,justify="left").pack(anchor="w",padx=11,pady=(0,8))
+
+    def cancelar_cita(self, cita, index, win):
+        """Cancela la cita y libera su espacio, subiendo el siguiente de la fila."""
+        if not messagebox.askyesno(
+            "Cancelar cita",
+            f"¿Desea cancelar la cita de:\n{cita['paciente']}\n\n"
+            f"{cita['fecha']} {cita['hora']} · {cita['medico']}\n\n"
+            "Si alguien estaba en la fila de espera, pasará a ocupar el espacio.",
+            parent=self):
+            return
+        try:
+            promocion = citas.cancelar_cita(cita)
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            messagebox.showerror("No se pudo cancelar la cita", str(error), parent=self)
+            return
+        win.destroy()
+        self.refrescar_vista_actual()
+        if promocion is not None:
+            messagebox.showinfo(
+                "Cita cancelada",
+                f"La cita quedó cancelada.\n\n{promocion['paciente']} salió de la "
+                "fila de espera y ahora ocupa ese espacio como Pendiente.",
+                parent=self)
+        else:
+            messagebox.showinfo("Cita cancelada", "La cita quedó cancelada.", parent=self)
 
     def badge(self,parent,state):
-        bg,fg=(GREEN_BG,GREEN) if state=="Realizada" else (YELLOW_BG,YELLOW) if state=="Pendiente" else (RED_BG,RED)
+        bg,fg=(GREEN_BG,GREEN) if state=="Realizada" else (YELLOW_BG,YELLOW) if state=="Pendiente" else (CYAN_BG,CYAN) if state==ESTADO_ESPERA else (RED_BG,RED)
         return tk.Label(parent,text=state,bg=bg,fg=fg,font=(FONT,8,"bold"),padx=8,pady=4)
 
     def complete_cita(self,index,win):
-        citas.marcar_como_realizada(index); win.destroy(); self.show_citas()
-        messagebox.showinfo("Cita actualizada","La cita fue marcada como realizada.")
+        _, hubo_promocion = citas.marcar_como_realizada(index)
+        win.destroy()
+        self.refrescar_vista_actual()
+        if hubo_promocion:
+            messagebox.showinfo(
+                "Cita actualizada",
+                "La cita fue marcada como realizada.\n\n"
+                "La siguiente de la fila pasó a Pendiente y ocupa ese espacio.",
+                parent=self)
+        else:
+            messagebox.showinfo("Cita actualizada","La cita fue marcada como realizada.", parent=self)
 
 if __name__ == "__main__":
     App().mainloop()

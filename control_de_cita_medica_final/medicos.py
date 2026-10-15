@@ -1,4 +1,6 @@
 import json, os
+
+import historial
 from almacenamiento import cargar_json_lista, guardar_json_atomico
 
 ARCHIVO = os.path.join(os.path.dirname(__file__), "archivos", "medicos.json")
@@ -18,6 +20,15 @@ def registrar_medico(datos):
     medicos = cargar_medicos()
     medicos.append(datos)
     _guardar_medicos(medicos)
+    historial.registrar_accion(
+        "Registrar médico",
+        {
+            "tipo": "agregar",
+            "entidad": "medico",
+            "posicion": len(medicos) - 1,
+            "datos": dict(datos),
+        },
+    )
     return datos
 
 
@@ -45,6 +56,41 @@ def eliminar_medico(documento):
             "cita(s) registrada(s). Elimine primero las citas."
         )
 
+    posicion = registros.index(medico)
     registros.remove(medico)
     _guardar_medicos(registros)
+    historial.registrar_accion(
+        "Eliminar médico",
+        {
+            "tipo": "eliminar",
+            "entidad": "medico",
+            "posicion": posicion,
+            "datos": dict(medico),
+        },
+    )
     return True
+
+
+def revertir(instantanea):
+    """Deshace una acción sobre médicos a partir de su instantánea."""
+    tipo = instantanea.get("tipo")
+    posicion = instantanea.get("posicion")
+    if not isinstance(posicion, int) or posicion < 0:
+        return False
+    registros = cargar_json_lista(ARCHIVO)
+
+    if tipo == "eliminar":
+        if posicion > len(registros):
+            return False
+        registros.insert(posicion, instantanea.get("datos"))
+        _guardar_medicos(registros)
+        return True
+
+    if tipo == "agregar":
+        if posicion >= len(registros) or registros[posicion] != instantanea.get("datos"):
+            return False
+        del registros[posicion]
+        _guardar_medicos(registros)
+        return True
+
+    return False
