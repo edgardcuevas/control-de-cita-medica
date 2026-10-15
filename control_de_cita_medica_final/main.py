@@ -4,6 +4,7 @@ from datetime import datetime
 import pacientes
 import medicos
 import citas
+import usuarios
 
 # ============================================================
 # CONTROL DE CITAS MÉDICAS
@@ -30,35 +31,216 @@ FONT = "Segoe UI"
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("MedCheck — Control de Citas Médicas")
-        self.geometry("1240x760")
-        self.minsize(980, 650)
-        self.configure(bg=BG)
-
+        self.title("MediCitas — Sistema de gestión de citas médicas")
+        self.geometry("1000x600")
+        self.minsize(760, 500)
+        self.configure(bg="#F7F9FC")
         self.style = ttk.Style(self)
         self.style.theme_use("clam")
         self.style.configure("Treeview", background=WHITE, fieldbackground=WHITE,
-                             foreground=TEXT, rowheight=34, font=(FONT, 9),
-                             borderwidth=0)
+                             foreground=TEXT, rowheight=34, font=(FONT, 9), borderwidth=0)
         self.style.configure("Treeview.Heading", background="#FBFCFD",
-                             foreground=MUTED, font=(FONT, 8, "bold"),
-                             relief="flat")
+                             foreground=MUTED, font=(FONT, 8, "bold"), relief="flat")
         self.style.map("Treeview", background=[("selected", BLUE_LIGHT)],
                        foreground=[("selected", TEXT)])
+        self.current_user = None
+        self.show_login()
 
+    def clear_root(self):
+        for child in self.winfo_children():
+            child.destroy()
+
+    def auth_header(self):
+        header = tk.Frame(self, bg=WHITE, height=48, highlightbackground=BORDER, highlightthickness=1)
+        header.pack(fill="x", side="top")
+        header.pack_propagate(False)
+        brand = tk.Frame(header, bg=WHITE)
+        brand.pack(side="left", padx=20)
+        tk.Label(brand, text="✚", bg=BLUE, fg=WHITE, font=(FONT, 10, "bold"),
+                 width=2, height=1).pack(side="left", pady=9)
+        names = tk.Frame(brand, bg=WHITE)
+        names.pack(side="left", padx=7)
+        tk.Label(names, text="MediCitas", bg=WHITE, fg=TEXT,
+                 font=(FONT, 9, "bold")).pack(anchor="w")
+        tk.Label(names, text="CLÍNICA PARA TODOS", bg=WHITE, fg=MUTED,
+                 font=(FONT, 5)).pack(anchor="w")
+        tk.Label(header, text="Sistema de gestión de citas médicas", bg=WHITE, fg="#687486",
+                 font=(FONT, 7)).pack(side="right", padx=20)
+
+    def auth_footer(self):
+        footer = tk.Frame(self, bg="#F7F9FC")
+        footer.pack(side="bottom", fill="x", padx=20, pady=12)
+        tk.Label(footer, text="© 2026 MediCitas. Todos los derechos reservados.",
+                 bg="#F7F9FC", fg=MUTED, font=(FONT, 6)).pack(side="left")
+        tk.Label(footer, text="Privacidad   Términos de uso", bg="#F7F9FC",
+                 fg=MUTED, font=(FONT, 6)).pack(side="right")
+
+    def auth_card(self):
+        card = tk.Frame(self.auth_area, bg=WHITE, highlightbackground=BORDER, highlightthickness=1)
+        card.place(relx=0.5, rely=0.48, anchor="center", width=360)
+        return card
+
+    def auth_label(self, parent, text):
+        tk.Label(parent, text=text, bg=WHITE, fg=TEXT,
+                 font=(FONT, 7, "bold")).pack(anchor="w", pady=(10, 4))
+
+    def auth_entry(self, parent, placeholder, show=None):
+        entry = tk.Entry(parent, font=(FONT, 8), relief="solid", bd=1,
+                         highlightthickness=0, fg="#344054", show=show)
+        entry.pack(fill="x", ipady=7)
+        entry.insert(0, placeholder)
+        entry.config(fg="#9AA5B4")
+        def focus_in(_):
+            if entry.get() == placeholder:
+                entry.delete(0, "end"); entry.config(fg="#344054")
+                if show:
+                    entry.config(show=show)
+        def focus_out(_):
+            if not entry.get():
+                entry.config(show="")
+                entry.insert(0, placeholder); entry.config(fg="#9AA5B4")
+        entry.bind("<FocusIn>", focus_in)
+        entry.bind("<FocusOut>", focus_out)
+        entry.placeholder = placeholder
+        return entry
+
+    def auth_value(self, entry):
+        value = entry.get().strip()
+        return "" if value == getattr(entry, "placeholder", None) else value
+
+    def auth_button(self, parent, text, command, primary=True):
+        btn = tk.Button(parent, text=text, command=command, cursor="hand2",
+                        font=(FONT, 7, "bold"), relief="flat", bd=0, pady=8,
+                        bg=BLUE if primary else BLUE_LIGHT,
+                        fg=WHITE if primary else BLUE,
+                        activebackground="#1558C0" if primary else "#DCE9FF",
+                        activeforeground=WHITE if primary else BLUE)
+        btn.pack(fill="x", pady=(10, 0))
+        return btn
+
+    def show_login(self):
+        self.clear_root()
+        self.geometry("1000x600")
+        self.auth_header()
+        self.auth_area = tk.Frame(self, bg="#F7F9FC")
+        self.auth_area.pack(fill="both", expand=True)
+        card = self.auth_card()
+        inner = tk.Frame(card, bg=WHITE)
+        inner.pack(fill="both", expand=True, padx=16, pady=14)
+        tk.Label(inner, text="Iniciar sesión", bg=WHITE, fg=TEXT,
+                 font=(FONT, 12, "bold")).pack(anchor="w")
+        tk.Label(inner, text="Accede a tu cuenta para gestionar las citas de la clínica.",
+                 bg=WHITE, fg=MUTED, font=(FONT, 6), wraplength=320,
+                 justify="left").pack(anchor="w", pady=(4, 10))
+        self.auth_label(inner, "Correo electrónico")
+        email = self.auth_entry(inner, "nombre@clinica.com")
+        self.auth_label(inner, "Contraseña")
+        password = self.auth_entry(inner, "Ingresa tu contraseña", show="•")
+        # Keep the placeholder readable instead of displaying bullets until the user types.
+        password.config(show="")
+        self.auth_button(inner, "Iniciar sesión", lambda: self.login_action(email, password))
+        tk.Frame(inner, bg=BORDER, height=1).pack(fill="x", pady=(13, 8))
+        tk.Label(inner, text="¿Aún no tienes una cuenta?", bg=WHITE, fg="#687486",
+                 font=(FONT, 7)).pack(anchor="w")
+        self.auth_button(inner, "Crear cuenta", self.show_register, primary=False)
+        tk.Button(inner, text="Olvidé mi contraseña", command=lambda: messagebox.showinfo(
+            "Recuperar contraseña", "Por seguridad, la recuperación debe gestionarla el administrador del sistema."),
+            bg=WHITE, fg=BLUE, relief="flat", bd=0, cursor="hand2", font=(FONT, 7)).pack(pady=(8, 0))
+        self.auth_footer()
+        email.focus_set()
+
+    def login_action(self, email_entry, password_entry):
+        email, password = self.auth_value(email_entry), self.auth_value(password_entry)
+        if not email or not password:
+            messagebox.showwarning("Datos incompletos", "Ingresa tu correo electrónico y contraseña.")
+            return
+        user = usuarios.autenticar_usuario(email, password)
+        if not user:
+            messagebox.showerror("No se pudo iniciar sesión", "El correo o la contraseña son incorrectos.")
+            return
+        self.current_user = user
+        self.build_main_app()
+
+    def show_register(self):
+        self.clear_root()
+        self.geometry("1000x650")
+        self.auth_header()
+        self.auth_area = tk.Frame(self, bg="#F7F9FC")
+        self.auth_area.pack(fill="both", expand=True)
+        card = self.auth_card()
+        inner = tk.Frame(card, bg=WHITE)
+        inner.pack(fill="both", expand=True, padx=16, pady=14)
+        tk.Label(inner, text="Crear cuenta", bg=WHITE, fg=TEXT,
+                 font=(FONT, 12, "bold")).pack(anchor="w")
+        tk.Label(inner, text="Regístrate en MediCitas y comienza a gestionar las citas de la clínica.",
+                 bg=WHITE, fg=MUTED, font=(FONT, 6), wraplength=320,
+                 justify="left").pack(anchor="w", pady=(4, 5))
+        self.auth_label(inner, "Correo electrónico")
+        email = self.auth_entry(inner, "nombre@clinica.com")
+        self.auth_label(inner, "Contraseña")
+        password = self.auth_entry(inner, "Crea una contraseña", show="•")
+        password.config(show="")
+        tk.Label(inner, text="Usa al menos 8 caracteres.", bg=WHITE, fg=MUTED,
+                 font=(FONT, 6)).pack(anchor="w", pady=(3, 0))
+        self.auth_label(inner, "Confirmar contraseña")
+        confirm = self.auth_entry(inner, "Repite tu contraseña", show="•")
+        confirm.config(show="")
+        self.auth_button(inner, "Crear cuenta", lambda: self.register_action(email, password, confirm))
+        tk.Label(inner, text="Al crear una cuenta, aceptas los Términos de uso y la Política de privacidad de MediCitas.",
+                 bg=WHITE, fg=MUTED, font=(FONT, 6), wraplength=320,
+                 justify="left").pack(anchor="w", pady=(8, 0))
+        tk.Frame(inner, bg=BORDER, height=1).pack(fill="x", pady=(10, 7))
+        tk.Label(inner, text="¿Ya tienes una cuenta?", bg=WHITE, fg="#687486",
+                 font=(FONT, 7)).pack()
+        tk.Button(inner, text="↶  Volver a iniciar sesión", command=self.show_login,
+                  bg=WHITE, fg=BLUE, relief="flat", bd=0, cursor="hand2",
+                  font=(FONT, 7, "bold")).pack(pady=(4, 0))
+        self.auth_footer()
+        email.focus_set()
+
+    def register_action(self, email_entry, password_entry, confirm_entry):
+        email = self.auth_value(email_entry).lower()
+        password = self.auth_value(password_entry)
+        confirm = self.auth_value(confirm_entry)
+        if not email or not password or not confirm:
+            messagebox.showwarning("Datos incompletos", "Completa todos los campos.")
+            return
+        if "@" not in email or "." not in email.split("@")[-1]:
+            messagebox.showwarning("Correo inválido", "Ingresa una dirección de correo válida.")
+            return
+        if len(password) < 8:
+            messagebox.showwarning("Contraseña insegura", "La contraseña debe tener al menos 8 caracteres.")
+            return
+        if password != confirm:
+            messagebox.showerror("Las contraseñas no coinciden", "Revisa la contraseña y su confirmación.")
+            return
+        try:
+            usuarios.registrar_usuario(email, password)
+        except ValueError as exc:
+            messagebox.showerror("No se pudo crear la cuenta", str(exc))
+            return
+        messagebox.showinfo("Cuenta creada", "Tu cuenta fue creada correctamente. Ahora puedes iniciar sesión.")
+        self.show_login()
+
+    def build_main_app(self):
+        self.clear_root()
+        self.geometry("1240x760")
+        self.minsize(980, 650)
         self.sidebar = tk.Frame(self, bg=WHITE, width=220)
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
-
         self.body = tk.Frame(self, bg=BG)
         self.body.pack(side="left", fill="both", expand=True)
-
         self.build_sidebar()
         self.build_topbar()
         self.content = tk.Frame(self.body, bg=BG)
         self.content.pack(fill="both", expand=True, padx=34, pady=28)
-
         self.show_dashboard()
+
+    def logout(self):
+        if messagebox.askyesno("Cerrar sesión", "¿Deseas cerrar tu sesión?"):
+            self.current_user = None
+            self.show_login()
 
     def build_sidebar(self):
         brand = tk.Frame(self.sidebar, bg=WHITE)
@@ -95,10 +277,12 @@ class App(tk.Tk):
                  font=(FONT, 8, "bold"), width=4, height=2).pack(side="left")
         user = tk.Frame(bottom, bg=WHITE)
         user.pack(side="left", padx=8)
-        tk.Label(user, text="Edgard Francisco", bg=WHITE, fg=TEXT,
-                 font=(FONT, 8, "bold")).pack(anchor="w")
-        tk.Label(user, text="Administrador", bg=WHITE, fg=MUTED,
+        tk.Label(user, text=self.current_user.get("email", "Usuario"), bg=WHITE, fg=TEXT,
+                 font=(FONT, 7, "bold"), wraplength=125).pack(anchor="w")
+        tk.Label(user, text="Cuenta registrada", bg=WHITE, fg=MUTED,
                  font=(FONT, 7)).pack(anchor="w")
+        tk.Button(bottom, text="Cerrar sesión", command=self.logout, bg=WHITE, fg=BLUE,
+                  relief="flat", bd=0, cursor="hand2", font=(FONT, 7)).pack(anchor="w", pady=(7,0))
 
     def build_topbar(self):
         bar = tk.Frame(self.body, bg=WHITE, height=54,
@@ -145,10 +329,10 @@ class App(tk.Tk):
             frame.pack_propagate(False)
         return frame
 
-    def confirmar_eliminacion(self, titulo, mensaje):
+    def confirmar_eliminacion(self, titulo, mensaje, advertencia=None):
         win = tk.Toplevel(self)
         win.title(titulo)
-        win.geometry("430x210")
+        win.geometry("430x250" if advertencia else "430x210")
         win.resizable(False, False)
         win.configure(bg=BG)
         win.transient(self)
@@ -159,6 +343,13 @@ class App(tk.Tk):
         tk.Label(win, text=mensaje, bg=BG, fg="#586575",
                  font=(FONT, 9), justify="left", wraplength=385).pack(
                      anchor="w", padx=22, fill="x")
+        if advertencia:
+            caja = tk.Frame(win, bg=YELLOW_BG, highlightbackground="#F0DFA8",
+                            highlightthickness=1)
+            caja.pack(fill="x", padx=22, pady=(10, 0))
+            tk.Label(caja, text=advertencia, bg=YELLOW_BG, fg=YELLOW,
+                     font=(FONT, 8, "bold"), justify="left",
+                     wraplength=360).pack(anchor="w", padx=11, pady=9)
         tk.Label(win, text="Esta acción no se puede deshacer.",
                  bg=BG, fg=MUTED, font=(FONT, 8)).pack(
                      anchor="w", padx=22, pady=(8, 0))
@@ -235,19 +426,15 @@ class App(tk.Tk):
         if allow_delete:
             cols += ("Acción",)
         tree = ttk.Treeview(parent, columns=cols, show="headings", selectmode="browse")
-        widths = {
-            "Paciente": 230, "Médico": 190, "Fecha": 100, "Hora": 80,
-            "Estado": 100, "Acción": 54,
-        }
+        widths = {"Paciente":230,"Médico":190,"Fecha":100,"Hora":80,"Estado":100,"Acción":54}
         for c in cols:
-            tree.heading(c, text="×" if c == "Acción" else c.upper())
+            tree.heading(c, text="×" if c=="Acción" else c.upper())
             tree.column(c, width=widths[c],
-                        anchor="center" if c == "Acción" else "w",
-                        stretch=c != "Acción")
+                        anchor="center" if c=="Acción" else "w",
+                        stretch=c!="Acción")
         for i, c in enumerate(datos):
             valores = (
-                c["paciente"], c["medico"], c["fecha"], c["hora"],
-                c.get("estado", "Pendiente"),
+                c["paciente"], c["medico"], c["fecha"], c["hora"], c.get("estado","Pendiente")
             )
             if allow_delete:
                 valores += ("×",)
@@ -426,14 +613,23 @@ class App(tk.Tk):
         self.citas_tree(self.citas_panel,cs,allow_delete=True)
 
     def eliminar_cita(self, cita):
+        estado = cita.get("estado","Pendiente")
         nombre = (
             f'Paciente: {cita["paciente"]}\n'
             f'Médico: {cita["medico"]}\n'
             f'Fecha y hora: {cita["fecha"]} {cita["hora"]}'
         )
+        sin_terminar = estado != "Realizada"
         if not self.confirmar_eliminacion(
-            "Eliminar cita",
+            "Eliminar cita pendiente" if sin_terminar else "Eliminar cita",
             f"¿Está seguro de que desea eliminar esta cita?\n\n{nombre}",
+            advertencia=(
+                "⚠  Esta cita no está completada ("
+                f"{estado}). Al eliminarla se perderá una cita "
+                "aún sin atender."
+                if sin_terminar
+                else None
+            ),
         ):
             return
         try:

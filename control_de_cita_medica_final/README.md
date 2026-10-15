@@ -21,6 +21,13 @@ python main.py
 
 Las cuentas se guardan en `archivos/usuarios.json`. Las contraseñas se almacenan como hashes PBKDF2-SHA256 con sal aleatoria, no como texto legible.
 
+## Gestión de eliminaciones
+- **Pacientes, médicos y citas** se pueden eliminar desde la columna **Acción (×)** de sus tablas, y los médicos además desde el botón **×** de su tarjeta.
+- Toda eliminación pide confirmación en un diálogo propio que advierte *«Esta acción no se puede deshacer.»*.
+- No se permite eliminar un **paciente o un médico que tenga citas asociadas**: primero hay que eliminar esas citas.
+- Al eliminar una cita que **no está completada** (estado Pendiente o Cancelada), el diálogo muestra una advertencia en amarillo indicando que es una cita sin terminar. La eliminación sigue siendo posible.
+- Los archivos JSON se escriben de forma **atómica** (archivo temporal + reemplazo), por lo que una interrupción no deja los datos a medias.
+
 ## Almacenamiento
 Los pacientes, médicos y citas siguen almacenándose en los archivos JSON existentes de la carpeta `archivos/`. No se necesita migrar esos datos.
 

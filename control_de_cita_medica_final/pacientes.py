@@ -1,9 +1,9 @@
 import json, os
 from almacenamiento import cargar_json_lista, guardar_json_atomico
 
-ARCHIVO = os.path.join(os.path.dirname(__file__), "archivos", "medicos.json")
+ARCHIVO = os.path.join(os.path.dirname(__file__), "archivos", "pacientes.json")
 
-def cargar_medicos():
+def cargar_pacientes():
     try:
         with open(ARCHIVO, "r", encoding="utf-8") as archivo:
             datos = json.load(archivo)
@@ -11,19 +11,19 @@ def cargar_medicos():
     except (FileNotFoundError, json.JSONDecodeError):
         return []
 
-def _guardar_medicos(medicos):
-    guardar_json_atomico(ARCHIVO, medicos)
+def _guardar_pacientes(pacientes):
+    guardar_json_atomico(ARCHIVO, pacientes)
 
-def registrar_medico(datos):
-    medicos = cargar_medicos()
-    medicos.append(datos)
-    _guardar_medicos(medicos)
+def registrar_paciente(datos):
+    pacientes = cargar_pacientes()
+    pacientes.append(datos)
+    _guardar_pacientes(pacientes)
     return datos
 
 
-def eliminar_medico(documento):
+def eliminar_paciente(documento):
     registros = cargar_json_lista(ARCHIVO)
-    medico = next(
+    paciente = next(
         (
             registro
             for registro in registros
@@ -32,19 +32,19 @@ def eliminar_medico(documento):
         ),
         None,
     )
-    if medico is None:
+    if paciente is None:
         return False
 
-    from citas import contar_citas_medico
+    from citas import contar_citas_paciente
 
-    nombre = f'{medico.get("nombre", "")} {medico.get("apellido", "")}'.strip()
-    asociadas = contar_citas_medico(nombre)
+    nombre = f'{paciente.get("nombre", "")} {paciente.get("apellido", "")}'.strip()
+    asociadas = contar_citas_paciente(documento, nombre)
     if asociadas:
         raise ValueError(
-            f"No se puede eliminar el médico porque tiene {asociadas} "
+            f"No se puede eliminar el paciente porque tiene {asociadas} "
             "cita(s) registrada(s). Elimine primero las citas."
         )
 
-    registros.remove(medico)
-    _guardar_medicos(registros)
+    registros.remove(paciente)
+    _guardar_pacientes(registros)
     return True

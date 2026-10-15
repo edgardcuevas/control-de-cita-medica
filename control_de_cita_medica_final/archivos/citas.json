@@ -1,18 +1,5 @@
 [
     {
-        "paciente": "Edgard Francisco Cuevas GUerrero Cuevas GUerrero",
-        "documento_paciente": "Edgard Francisco Cuevas Guerrero",
-        "medico": "Juan Armando Cerrano",
-        "especialidad": "cirujano",
-        "modulo": "modulo 5",
-        "fecha": "22/08/2026",
-        "hora": "17:00",
-        "tipo": "presencial",
-        "motivo": "dolor en la sona de la cirjuia",
-        "observaciones": "ninguna",
-        "estado": "Realizada"
-    },
-    {
         "paciente": "Maria Esperanza Guerrero Mendez",
         "documento_paciente": "085-110886-4432D",
         "medico": "Ernesto Gutierres",
