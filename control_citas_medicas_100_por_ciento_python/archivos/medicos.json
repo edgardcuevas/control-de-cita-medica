@@ -20,5 +20,16 @@
         "especialidad": "diabetologo",
         "consultorio": "4",
         "horario": "6 am a 3 pm"
+    },
+    {
+        "documento": "986644321HJ",
+        "nombre": "Juan Francisco",
+        "apellido": "Gutierres Peralta",
+        "telefono": "00998877",
+        "correo": "JuanPeralta@test.com",
+        "modulo": "9",
+        "especialidad": "odontologo",
+        "consultorio": "10",
+        "horario": "6 am a 12 pm"
     }
 ]

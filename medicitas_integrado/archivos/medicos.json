@@ -1,0 +1,35 @@
+[
+    {
+        "documento": "0862211081000J",
+        "nombre": "Juan Armando",
+        "apellido": "Cerrano",
+        "telefono": "99776543",
+        "correo": "armandior@test.com",
+        "modulo": "modulo 5",
+        "especialidad": "cirujano",
+        "consultorio": "23",
+        "horario": "de 9 am a 3 pm"
+    },
+    {
+        "documento": "086-241112-876G",
+        "nombre": "Ernesto",
+        "apellido": "Gutierres",
+        "telefono": "76543211",
+        "correo": "ernesto@test.com",
+        "modulo": "5",
+        "especialidad": "diabetologo",
+        "consultorio": "4",
+        "horario": "6 am a 3 pm"
+    },
+    {
+        "documento": "112233445566",
+        "nombre": "Marlon",
+        "apellido": "Surtiava",
+        "telefono": "76751188",
+        "correo": "marlon@test.com",
+        "modulo": "modulo 3",
+        "especialidad": "cirujano",
+        "consultorio": "5",
+        "horario": "3:00 a 18:00"
+    }
+]

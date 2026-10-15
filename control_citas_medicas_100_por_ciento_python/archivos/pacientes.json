@@ -24,5 +24,18 @@
         "correo": "espeguerreri7675@gmail.com",
         "tipo_sangre": "O-",
         "seguro_medico": "no tiene"
+    },
+    {
+        "documento": "0862211081000J",
+        "nombre": "Juan",
+        "apellido": "Mendes",
+        "edad": 20,
+        "sexo": "masculino",
+        "fecha_nacimiento": "15/08/2000",
+        "telefono": "87665432",
+        "direccion": "URB San antonio 1C N",
+        "correo": "Juan@test.com",
+        "tipo_sangre": "o-",
+        "seguro_medico": "no tiene"
     }
 ]
