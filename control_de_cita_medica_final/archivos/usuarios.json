@@ -3,5 +3,10 @@
     "email": "edgardcuevas@test.com",
     "salt": "27d92269015e688d1b5e0b77ff553936",
     "password_hash": "4f2f3f1b799cc1e40c6cb3fa062040796ea9b5612f837a55e27ce76b8a5510b0"
+  },
+  {
+    "email": "edgard@test2.com",
+    "salt": "cde462829e1572768ad992c103633c9c",
+    "password_hash": "0c08abdd34932a8631b54d6ac32dde2ae7697b68556e5d663ae9e2a598250814"
   }
 ]

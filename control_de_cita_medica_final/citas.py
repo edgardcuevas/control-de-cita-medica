@@ -1,11 +1,31 @@
 import json, os
 
+import busquedas
 import historial
 import esperas
-from almacenamiento import cargar_json_lista, guardar_json_atomico
+from almacenamiento import cargar_json_lista, firma_archivo, guardar_json_atomico
 from esperas import ESTADO_ESPERA
 
 ARCHIVO = os.path.join(os.path.dirname(__file__), "archivos", "citas.json")
+
+#: Campos que participan en la búsqueda por texto libre.
+CAMPOS_BUSQUEDA = (
+    "paciente",
+    "documento_paciente",
+    "medico",
+    "especialidad",
+    "modulo",
+    "fecha",
+    "hora",
+    "tipo",
+    "motivo",
+    "observaciones",
+    "estado",
+)
+
+# Índice de fechas reutilizable por la búsqueda binaria.
+_indice_fechas = None
+_firma_indice = None
 
 def cargar_citas():
     try:
@@ -24,6 +44,124 @@ def cargar_citas():
 
 def _guardar_citas(citas):
     guardar_json_atomico(ARCHIVO, citas)
+    _invalidar_indice()
+
+
+def _invalidar_indice():
+    global _indice_fechas, _firma_indice
+    _indice_fechas = None
+    _firma_indice = None
+
+
+def crear_indice_fechas(registros=None):
+    """Índice ordenado por fecha ISO para la búsqueda binaria."""
+    registros = cargar_citas() if registros is None else registros
+    return busquedas.indice_ordenado(
+        registros, lambda cita: busquedas.clave_fecha(cita.get("fecha", ""))
+    )
+
+
+def _indice_fechas_actual():
+    global _indice_fechas, _firma_indice
+    firma = firma_archivo(ARCHIVO)
+    if _indice_fechas is None or firma != _firma_indice:
+        _indice_fechas = crear_indice_fechas(cargar_citas())
+        _firma_indice = firma
+    return _indice_fechas
+
+
+def _fecha_iso(texto):
+    """Devuelve la fecha en formato ISO o None si no es dd/mm/aaaa."""
+    clave = busquedas.clave_fecha(texto)
+    return None if clave == "9999-99-99" else clave
+
+
+def buscar_citas(texto="", estado=None, registros=None):
+    """Busca citas por texto libre, estado y fecha exacta.
+
+    - Fecha ``dd/mm/aaaa`` -> búsqueda binaria sobre un índice de fechas.
+    - Cualquier otro texto -> búsqueda secuencial por todos los campos.
+    - ``estado`` se aplica antes de buscar y admite los cuatro estados.
+    """
+    usar_cache = registros is None
+    registros = cargar_citas() if usar_cache else registros
+    filtrados = registros
+    if estado and estado != "Todas":
+        filtrados = [
+            cita for cita in registros
+            if cita.get("estado", "Pendiente") == estado
+        ]
+
+    consulta = busquedas.normalizar(texto)
+    if not consulta:
+        return busquedas.ResultadoBusqueda(filtrados, "Listado", 0)
+
+    fecha_iso = _fecha_iso(texto)
+    if fecha_iso:
+        if usar_cache and not (estado and estado != "Todas"):
+            indice = _indice_fechas_actual()
+        else:
+            indice = crear_indice_fechas(filtrados)
+        posiciones, comparaciones = busquedas.busqueda_por_rango(
+            indice, fecha_iso, fecha_iso
+        )
+        return busquedas.ResultadoBusqueda(
+            [filtrados[posicion] for posicion in posiciones],
+            "Binaria (fecha)",
+            comparaciones,
+        )
+
+    terminos = consulta.split()
+
+    def coincide(cita):
+        texto_cita = busquedas.normalizar(
+            " ".join(str(cita.get(campo, "")) for campo in CAMPOS_BUSQUEDA)
+        )
+        return all(termino in texto_cita for termino in terminos)
+
+    return busquedas.busqueda_secuencial(filtrados, coincide)
+
+
+def buscar_por_fecha(desde, hasta, registros=None):
+    """Busca citas entre dos fechas inclusivas con búsqueda binaria."""
+    usar_cache = registros is None
+    registros = cargar_citas() if usar_cache else registros
+    iso_desde = _fecha_iso(desde)
+    iso_hasta = _fecha_iso(hasta)
+    if not iso_desde or not iso_hasta:
+        return busquedas.ResultadoBusqueda([], "Binaria (fecha)", 0)
+    if iso_desde > iso_hasta:
+        iso_desde, iso_hasta = iso_hasta, iso_desde
+
+    indice = (
+        _indice_fechas_actual()
+        if usar_cache
+        else crear_indice_fechas(registros)
+    )
+    posiciones, comparaciones = busquedas.busqueda_por_rango(
+        indice, iso_desde, iso_hasta
+    )
+    return busquedas.ResultadoBusqueda(
+        [registros[posicion] for posicion in posiciones],
+        "Binaria (fecha)",
+        comparaciones,
+    )
+
+
+def buscar_por_espacio(medico, fecha, hora, registros=None):
+    """Devuelve todas las citas de un espacio (médico, fecha, hora) usando hash."""
+    registros = cargar_citas() if registros is None else registros
+    tabla = busquedas.construir_hash_multiple(registros, esperas.clave_espacio)
+    clave = esperas.clave_espacio(
+        {"medico": medico, "fecha": fecha, "hora": hora}
+    )
+    pares = tabla.buscar_todos(clave)
+    pares.sort(key=lambda par: par[1])
+    return busquedas.ResultadoBusqueda(
+        [par[0] for par in pares],
+        "Hash (espacio)",
+        max(1, len(pares)),
+    )
 
 
 def contar_citas_paciente(documento, nombre=None):

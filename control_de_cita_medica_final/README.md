@@ -48,6 +48,25 @@ Estas instantáneas se guardan aparte, en `archivos/historial.json`. **No hay qu
 
 La explicación completa —dónde se aplicó cada estructura, con ejemplos y análisis de complejidad— está en **`ESTRUCTURAS.txt`**.
 
+## Búsqueda de registros
+El módulo `busquedas.py` implementa tres algoritmos propios, sin `bisect` ni el `dict` de Python para la tabla hash:
+
+- **Búsqueda secuencial (`O(n)`)** para texto libre: recorre todos los registros y exige que todos los términos aparezcan en algún campo. Ignora mayúsculas, tildes y espacios de más.
+- **Búsqueda binaria (`O(log n)`)** sobre un índice ordenado de fechas. Se usa al escribir una fecha `dd/mm/aaaa` en el buscador de Citas y también está disponible para rangos con `citas.buscar_por_fecha(desde, hasta)`.
+- **Tabla hash con encadenamiento (`O(1)` promedio)** para claves exactas: documento de pacientes y médicos, correo de usuarios y espacio de agenda `(médico, fecha, hora)`.
+
+Cada pantalla tiene su buscador con filtrado mientras se escribe, botón **Limpiar**, contador de resultados y atajo **Ctrl+F**. En Citas se combina con las pestañas de estado. El encabezado indica qué algoritmo se usó, por ejemplo `2 resultado(s) · Binaria (fecha)`.
+
+Los índices se construyen en memoria y se invalidan al guardar o cuando cambia el archivo. **No se reordenan los JSON**, por lo que Deshacer sigue reinsertando cada registro en su posición original.
+
+Las pruebas y el benchmark se ejecutan con:
+
+```bash
+python pruebas_busquedas.py
+```
+
+La explicación completa está en **`BUSQUEDAS.txt`**.
+
 ## Almacenamiento
 Los pacientes, médicos y citas siguen almacenándose en los archivos JSON existentes de la carpeta `archivos/`. No se necesita migrar esos datos.
 

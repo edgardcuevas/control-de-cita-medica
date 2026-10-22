@@ -1,0 +1,474 @@
+================================================================================
+ALGORITMOS DE BUSQUEDA EN MEDICITAS
+================================================================================
+
+Este documento explica que algoritmos de busqueda se implementaron, en que
+archivo y metodo se aplicaron, que problema resuelven y como se verificaron.
+
+Fecha: 22/10/2026
+Alcance: Fase 4 (busqueda secuencial, binaria y tabla hash)
+Carpeta: control_de_cita_medica_final
+
+
+--------------------------------------------------------------------------------
+1. SITUACION INICIAL
+--------------------------------------------------------------------------------
+
+Antes de esta fase el sistema no tenia un modulo de busqueda. Las unicas
+busquedas eran recorridos lineales escritos a mano:
+
+  pacientes.py / eliminar_paciente()
+      next((registro for registro in registros
+            if registro["documento"] == documento), None)
+      y despues registros.index(paciente)
+
+  medicos.py / eliminar_medico()
+      el mismo patron
+
+  usuarios.py / autenticar_usuario()
+      for user in cargar_usuarios():
+          if user["email"] == email: ...
+
+  main.py / open_cita_from_tree()
+      for idx, c in enumerate(todos):
+          if c == cita_obj: ...
+
+  main.py / save_cita()
+      next(p for p in ps if nombre_completo == values["paciente"])
+      next(m for m in ms if nombre_completo == values["medico"])
+
+Eso funcionaba con pocos registros, pero tenia tres problemas:
+
+  a) Cada busqueda exacta por documento recorria toda la lista: O(n).
+  b) La interfaz no tenia ningun buscador: para encontrar un paciente habia
+     que recorrer la tabla a ojo.
+  c) Las comparaciones usaban casefold(), pero no ignoraban las tildes:
+     "Maria" no encontraba "Maria Esperanza" si el nombre estaba escrito
+     con tilde.
+
+
+--------------------------------------------------------------------------------
+2. ARCHIVO NUEVO: busquedas.py
+--------------------------------------------------------------------------------
+
+Contiene los tres algoritmos implementados a mano. No usa bisect para la
+busqueda binaria ni dict para la tabla hash. Tampoco requiere paquetes
+externos.
+
+--------------------------------------------------------------------------------
+2.0 normalizar(texto)
+--------------------------------------------------------------------------------
+
+  Pasa el texto a minusculas, elimina tildes y colapsa espacios.
+
+      normalizar("  Maria   GUERRERO ")  ->  "maria guerrero"
+      normalizar("Perez")                ->  "perez"
+      normalizar(None)                   ->  "none"
+
+  Se usa en todas las comparaciones. La "n" con virgulilla se convierte en
+  "n", igual que las vocales acentuadas.
+
+--------------------------------------------------------------------------------
+2.1 busqueda_secuencial(registros, criterio)  ->  O(n)
+--------------------------------------------------------------------------------
+
+  Recorre la lista completa y devuelve todos los registros para los que
+  criterio(registro) es True. Cuenta una comparacion por registro.
+
+  Es la tecnica correcta para texto parcial: para saber si un termino aparece
+  en cualquier campo hay que mirar todos los registros. No se puede usar
+  busqueda binaria porque la lista no esta ordenada por el texto que el
+  usuario escribe.
+
+  Devuelve un ResultadoBusqueda con:
+      elementos       lista de coincidencias
+      algoritmo       "Secuencial"
+      comparaciones   cantidad de registros revisados
+
+--------------------------------------------------------------------------------
+2.2 indice_ordenado() + busqueda_binaria()  ->  O(log n)
+--------------------------------------------------------------------------------
+
+  indice_ordenado(registros, campo)
+      Crea una lista [(clave_normalizada, indice_original), ...] ordenada.
+      NO modifica la lista original ni el archivo JSON. Esto es importante
+      porque las posiciones originales son las que usa la pila de Deshacer.
+
+  busqueda_binaria(indice, objetivo)
+      Busqueda binaria clasica sobre el indice. Divide el rango a la mitad
+      en cada paso. Si hay claves repetidas retrocede hasta la primera.
+      Devuelve (indice_original, comparaciones) o (-1, comparaciones).
+
+  _limite_inferior() / _limite_superior()
+      Variantes lower_bound y upper_bound para rangos.
+
+  busqueda_por_rango(indice, desde, hasta)
+      Devuelve todos los indices originales cuyas claves estan entre desde y
+      hasta, ambos inclusive. Se usa para buscar citas por rango de fechas.
+      Complejidad: O(log n + k), donde k es la cantidad de resultados.
+
+  busqueda_por_prefijo(indice, prefijo)
+      Localiza con busqueda binaria el inicio del bloque que empieza por el
+      prefijo y recorre solo las coincidencias. Complejidad O(log n + k).
+
+  clave_fecha(texto)
+      Convierte dd/mm/aaaa en aaaa-mm-dd para que las fechas se puedan
+      comparar como texto. Las fechas invalidas van al final (9999-99-99)
+      para no romper el orden.
+
+  Complejidad de busqueda_binaria: O(log n). El costo de construir el indice
+  es O(n log n) y se paga una sola vez por carga de datos.
+
+--------------------------------------------------------------------------------
+2.3 TablaHash  ->  O(1) promedio
+--------------------------------------------------------------------------------
+
+  Tabla hash con encadenamiento y rehash automatico.
+
+  Funcion hash: djb2 polinomica, calculada a mano.
+      valor = 5381
+      para cada caracter: valor = valor * 33 + ord(caracter)
+      posicion = valor % capacidad
+
+  Cada cubeta es una lista de pares (clave, valor). Si dos claves caen en la
+  misma cubeta se recorren en orden; eso es el encadenamiento.
+
+  Metodos:
+      insertar(clave, valor)             inserta o reemplaza
+      insertar_si_ausente(clave, valor)  conserva la primera aparicion
+      agregar(clave, valor)              permite varias entradas por clave
+      buscar(clave)                      primer valor o None
+      buscar_todos(clave)                todos los valores de esa clave
+      contiene(clave)                    True si la clave existe
+      tamano() / capacidad() / factor_carga()
+
+  Rehash: cuando el factor de carga supera 0.75 se crea una tabla mas grande
+  (siguiente numero primo) y se reinsertan todas las entradas.
+
+  Claves compuestas: una tupla como (medico, fecha, hora) se normaliza a
+  "medico|fecha|hora", de modo que el espacio de agenda tambien se puede
+  buscar con hash.
+
+  construir_hash(registros, campo)
+      Indice de clave unica. Guarda (registro, indice_original) y conserva la
+      primera aparicion si hay documentos repetidos.
+
+  construir_hash_multiple(registros, campo)
+      Indice que admite varias entradas por clave. Se usa para agrupar las
+      citas de un mismo espacio de agenda.
+
+  Complejidad promedio: O(1). Peor caso: O(n) si todas las claves chocan.
+  En la practica el rehash mantiene el factor de carga bajo.
+
+--------------------------------------------------------------------------------
+2.4 ResultadoBusqueda
+--------------------------------------------------------------------------------
+
+  Objeto pequeno que devuelven las funciones de busqueda:
+
+      resultado.elementos       lista de registros encontrados
+      resultado.algoritmo       "Secuencial", "Binaria (fecha)", "Hash (documento)"...
+      resultado.comparaciones   comparaciones realizadas
+
+  La interfaz muestra el algoritmo y la cantidad de resultados en el
+  encabezado del panel. Las pruebas usan las comparaciones para comparar el
+  costo de cada tecnica.
+
+
+--------------------------------------------------------------------------------
+3. DONDE SE APLICARON LOS ALGORITMOS
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+3.1 pacientes.py
+--------------------------------------------------------------------------------
+
+  CAMPOS_BUSQUEDA
+      nombre, apellido, documento, telefono, correo, tipo_sangre,
+      seguro_medico, direccion, fecha_nacimiento, sexo.
+
+  crear_indice(registros=None)
+      Construye la tabla hash de documentos.
+
+  _indice_actual()
+      Devuelve el indice cacheado. Se reconstruye si cambia la firma del
+      archivo (mtime + tamano) o si se guardo una modificacion.
+
+  buscar_por_documento(documento)
+      Busqueda exacta con hash: O(1) promedio. Reemplaza el next() lineal.
+
+  buscar_pacientes(texto, registros=None)
+      - Si el texto coincide exactamente con un documento, usa el hash.
+      - Si no, usa busqueda secuencial exigiendo que TODOS los terminos
+        aparezcan en algun campo.
+      - Solo intenta el camino hash cuando el texto parece un documento
+        (tiene digitos o guiones). Asi "juan" no se confunde con un registro
+        cuyo campo documento casualmente se llame "Juan".
+      Devuelve ResultadoBusqueda.
+
+  eliminar_paciente(documento)
+      Construye el hash una vez sobre la lista que se va a modificar y usa
+      (paciente, posicion) para borrar sin un segundo recorrido.
+      La instantanea de Deshacer sigue guardando la posicion original.
+
+  _guardar_pacientes() invalida el indice despues de cada escritura.
+
+--------------------------------------------------------------------------------
+3.2 medicos.py
+--------------------------------------------------------------------------------
+
+  Misma estructura que pacientes.
+
+  CAMPOS_BUSQUEDA
+      nombre, apellido, documento, telefono, correo, modulo, especialidad,
+      consultorio, horario.
+
+  buscar_por_documento(documento)   -> hash
+  buscar_medicos(texto, registros)  -> hash si es documento exacto; si no,
+                                       busqueda secuencial.
+  eliminar_medico(documento)        -> hash + posicion original.
+
+--------------------------------------------------------------------------------
+3.3 citas.py
+--------------------------------------------------------------------------------
+
+  CAMPOS_BUSQUEDA
+      paciente, documento_paciente, medico, especialidad, modulo, fecha,
+      hora, tipo, motivo, observaciones, estado.
+
+  buscar_citas(texto="", estado=None, registros=None)
+      - Aplica primero el filtro de estado, si se indica.
+      - Si el texto es una fecha dd/mm/aaaa, usa busqueda binaria sobre un
+        indice de fechas (busqueda_por_rango con desde = hasta).
+      - Si no, usa busqueda secuencial por todos los campos.
+      Devuelve ResultadoBusqueda con el algoritmo usado.
+
+  buscar_por_fecha(desde, hasta, registros=None)
+      Busqueda binaria por rango inclusivo. Disponible para consultas
+      avanzadas y para las pruebas; la interfaz usa la deteccion de fecha
+      exacta del buscador.
+
+  crear_indice_fechas() / _indice_fechas_actual()
+      Indice ordenado por fecha ISO. Se reutiliza entre busquedas y se
+      invalida en _guardar_citas() o cuando cambia la firma del archivo.
+      Si la busqueda lleva filtro de estado, se construye un indice local
+      sobre el subconjunto filtrado para que las posiciones sean correctas.
+
+  buscar_por_espacio(medico, fecha, hora, registros=None)
+      Usa construir_hash_multiple() con esperas.clave_espacio() para devolver
+      todas las citas de un mismo espacio de agenda (activa y en espera).
+
+  Las funciones de eliminacion y cancelacion no cambiaron su logica de
+  negocio: siguen comparando diccionarios completos y guardando instantaneas
+  para Deshacer.
+
+--------------------------------------------------------------------------------
+3.4 usuarios.py
+--------------------------------------------------------------------------------
+
+  crear_indice() / _indice_actual()
+      Tabla hash de correos electronicos.
+
+  buscar_usuario(email)
+      Busqueda exacta O(1) promedio.
+
+  registrar_usuario(email, password)
+      Usa buscar_usuario() para comprobar duplicados en lugar del any()
+      lineal.
+
+  autenticar_usuario(email, password)
+      Localiza la cuenta con hash y despues verifica PBKDF2-SHA256 como
+      antes. El manejo de contrasenas no cambio.
+
+  _guardar_usuarios() invalida el indice.
+
+--------------------------------------------------------------------------------
+3.5 main.py — buscador en la interfaz
+--------------------------------------------------------------------------------
+
+  search_bar(parent, placeholder, callback)
+      Barra reutilizable con icono, placeholder, boton "Limpiar" y eventos
+      KeyRelease y Return.
+
+  search_value(entry) / set_search_text(entry, texto)
+      Separan el placeholder del valor real y restauran la consulta al
+      refrescar una vista.
+
+  focus_busqueda()
+      Ctrl+F enfoca y selecciona el buscador de la pantalla actual.
+
+  empty_state(parent, mensaje)
+      Mensaje amigable cuando no hay resultados.
+
+  filter_pacientes(texto)
+  filter_medicos(texto)
+  filter_citas(filtro)
+  buscar_citas_ui(texto)
+      Vuelven a dibujar solo el panel de resultados, sin destruir la barra
+      de busqueda ni perder el foco.
+
+  El texto de busqueda se guarda en:
+      self.pacientes_query
+      self.medicos_query
+      self.citas_query
+  y se conserva al eliminar, cancelar o deshacer. En Citas tambien se
+  conserva la pestaña de estado activa.
+
+  El encabezado del panel muestra, por ejemplo:
+      "3 resultado(s) · Secuencial"
+      "2 resultado(s) · Binaria (fecha)"
+      "1 resultado(s) · Hash (documento)"
+
+
+--------------------------------------------------------------------------------
+4. EJEMPLOS DE USO
+--------------------------------------------------------------------------------
+
+  Pacientes
+      "maria"                  -> busqueda secuencial, 1 resultado
+      "MARIA GUERRERO"         -> secuencial, sin importar mayusculas/tildes
+      "085-110886-4432D"       -> hash por documento, 1 resultado
+      "zzz"                    -> 0 resultados y mensaje de estado vacio
+
+  Medicos
+      "diabetologo"            -> secuencial por especialidad
+      "086-241112-876G"        -> hash por documento
+      "modulo 3"               -> secuencial por todos los terminos
+
+  Citas
+      "22/09/2026"             -> busqueda binaria por fecha
+      "maria"                  -> busqueda secuencial por paciente
+      "revision"               -> busqueda secuencial por motivo
+      "22/09/2026" + pestaña "Realizada"
+                               -> filtro de estado + binaria por fecha
+
+  Los terminos de una busqueda secuencial se combinan con Y: "maria
+  guerrero" encuentra los registros que contienen ambos terminos, en
+  cualquier campo y en cualquier orden.
+
+
+--------------------------------------------------------------------------------
+5. DECISIONES DE DISENO
+--------------------------------------------------------------------------------
+
+  a) Los indices viven en memoria.
+     No se reordena ni se reescribe pacientes.json, medicos.json ni
+     citas.json. Las posiciones originales se conservan para que Deshacer
+     reinserte un registro en el lugar exacto.
+
+  b) Cache con invalidacion.
+     Cada modulo guarda su indice y una firma (mtime_ns, tamano). Si el
+     archivo cambia por fuera de la aplicacion, la proxima busqueda
+     reconstruye el indice. Ademas, cada _guardar_*() lo invalida de
+     inmediato. Asi la busqueda exacta no reconstruye la tabla en cada tecla.
+
+  c) Busqueda secuencial para texto parcial.
+     Aunque el hash es mas rapido para una clave exacta, no sirve para
+     "contiene" en varios campos. Por eso el texto libre usa secuencial.
+
+  d) Busqueda binaria para fechas.
+     Las fechas dd/mm/aaaa no se ordenan bien como texto. clave_fecha() las
+     convierte a aaaa-mm-dd y el indice se ordena con esa clave.
+
+  e) Sin dependencias externas.
+     No se usa bisect, heapq, collections.deque ni dict para la tabla hash.
+     Solo se usa la biblioteca estandar de Python.
+
+
+--------------------------------------------------------------------------------
+6. ARCHIVOS CREADOS Y MODIFICADOS
+--------------------------------------------------------------------------------
+
+  CREADOS
+      busquedas.py            normalizar, secuencial, binaria, rango,
+                              prefijo, TablaHash, ResultadoBusqueda
+      pruebas_busquedas.py    pruebas y benchmark
+      BUSQUEDAS.txt           este documento
+
+  MODIFICADOS
+      pacientes.py            indices, buscar_por_documento,
+                              buscar_pacientes, eliminar_paciente
+      medicos.py              indices, buscar_por_documento,
+                              buscar_medicos, eliminar_medico
+      citas.py                buscar_citas, buscar_por_fecha,
+                              buscar_por_espacio
+      usuarios.py             buscar_usuario, indice de correos
+      main.py                 search_bar, filter_pacientes, filter_medicos,
+                              filter_citas, buscar_citas_ui, Ctrl+F,
+                              empty_state
+      almacenamiento.py       firma_archivo() para invalidar indices
+      README.md               seccion de busqueda
+
+  SIN CAMBIOS
+      estructuras.py          Pila, Cola, ColaPrioridad
+      esperas.py              logica de la fila de espera
+      historial.py            pila de Deshacer y cola de bitacora
+      archivos/*.json         no se reordena ni se migra ningun dato
+
+
+--------------------------------------------------------------------------------
+7. VERIFICACION REALIZADA
+--------------------------------------------------------------------------------
+
+  COMPILACION
+      python -m py_compile almacenamiento.py busquedas.py pacientes.py
+          medicos.py citas.py usuarios.py esperas.py historial.py
+          estructuras.py main.py pruebas_busquedas.py
+      -> sin errores.
+
+  PRUEBAS
+      python pruebas_busquedas.py
+
+      OK  test_normalizacion
+      OK  test_busqueda_secuencial
+      OK  test_busqueda_binaria_aleatoria
+      OK  test_busqueda_binaria_duplicados
+      OK  test_busqueda_por_rango
+      OK  test_busqueda_por_prefijo
+      OK  test_tabla_hash
+      OK  test_busquedas_pacientes
+      OK  test_busquedas_medicos
+      OK  test_busquedas_citas
+      OK  test_indice_usuarios
+      -> todas pasaron.
+
+  BENCHMARK (5000 registros, buscar el ultimo)
+      Secuencial     5000 comparaciones
+      Binaria          13 comparaciones
+      Hash              1 comparacion
+      El tiempo de construccion del indice se paga una sola vez; el de la
+      busqueda secuencial se paga en cada consulta.
+
+  PRUEBA DE INTERFAZ
+      - La aplicacion abre, inicia sesion y dibuja Dashboard, Pacientes,
+        Medicos y Citas sin errores.
+      - Busqueda en Pacientes por "maria" y por documento exacto.
+      - Busqueda en Medicos por especialidad.
+      - Busqueda en Citas por fecha y combinacion con la pestaña "Realizada".
+      - Estado vacio con una consulta sin resultados.
+      - Ctrl+F enfoca el buscador de la vista actual.
+      - Los filtros y el texto se conservan al refrescar una vista.
+
+  REGRESION
+      - Las pilas de navegacion y Deshacer siguen igual.
+      - La fila de espera y la promocion de citas siguen igual.
+      - Las eliminaciones siguen usando la posicion original para que
+        Deshacer reinserte en el lugar correcto.
+
+
+--------------------------------------------------------------------------------
+8. QUE NO SE IMPLEMENTO
+--------------------------------------------------------------------------------
+
+  - No hay busqueda difusa por distancia de edicion (Levenshtein). Si el
+    usuario escribe "Gerrero" no encuentra "Guerrero".
+  - No hay busqueda global que mezcle pacientes, medicos y citas en una sola
+    lista.
+  - No hay paginacion de resultados; la tabla muestra todos los que
+    coinciden.
+  - La interfaz no expone todavia un rango de fechas con dos campos; la
+    funcion citas.buscar_por_fecha(desde, hasta) esta lista para usarse.
+  - La busqueda es insensible a tildes y mayusculas, pero no interpreta
+    sinonimos ni errores ortograficos.
+
+================================================================================

@@ -247,7 +247,13 @@ class App(tk.Tk):
             "medicos": self.show_medicos,
             "citas": self.show_citas,
         }
+        # Texto de búsqueda que se conserva al refrescar una vista.
+        self.pacientes_query = ""
+        self.medicos_query = ""
+        self.citas_query = ""
+        self.current_filter = None
         self.bind_all("<Control-z>", lambda _e: self.deshacer_action())
+        self.bind_all("<Control-f>", lambda _e: self.focus_busqueda())
         self.build_sidebar()
         self.build_topbar()
         self.content = tk.Frame(self.body, bg=BG)
@@ -507,6 +513,92 @@ class App(tk.Tk):
                       highlightthickness=0, padx=10, pady=5,
                       font=(FONT, 7)).pack(side="right")
 
+    def search_bar(self, parent, placeholder, callback):
+        """Barra de búsqueda reutilizable para las tres pantallas.
+
+        Mantiene el placeholder fuera del valor de búsqueda y avisa a
+        ``callback`` en cada pulsación y al pulsar Enter.
+        """
+        bar = tk.Frame(parent, bg=BG)
+        bar.pack(fill="x", pady=(0, 12))
+
+        caja = tk.Frame(bar, bg=WHITE, highlightbackground=BORDER,
+                        highlightthickness=1)
+        caja.pack(side="left", fill="x", expand=True)
+        tk.Label(caja, text="⌕", bg=WHITE, fg=MUTED,
+                 font=(FONT, 12)).pack(side="left", padx=(10, 2))
+        entry = tk.Entry(caja, bd=0, relief="flat", font=(FONT, 9),
+                         bg=WHITE, fg="#9AA5B4", insertbackground=TEXT)
+        entry.pack(side="left", fill="x", expand=True, padx=(4, 8), ipady=7)
+        entry.insert(0, placeholder)
+        entry.placeholder = placeholder
+
+        def focus_in(_):
+            if entry.get() == placeholder:
+                entry.delete(0, "end")
+                entry.config(fg=TEXT)
+
+        def focus_out(_):
+            if not entry.get().strip():
+                entry.delete(0, "end")
+                entry.insert(0, placeholder)
+                entry.config(fg="#9AA5B4")
+
+        def limpiar():
+            entry.delete(0, "end")
+            entry.config(fg=TEXT)
+            callback("")
+            entry.focus_set()
+
+        entry.bind("<FocusIn>", focus_in)
+        entry.bind("<FocusOut>", focus_out)
+        entry.bind("<KeyRelease>", lambda _e: callback(self.search_value(entry)))
+        entry.bind("<Return>", lambda _e: callback(self.search_value(entry)))
+
+        tk.Button(bar, text="✕  Limpiar", command=limpiar, bg=WHITE,
+                  fg="#657183", relief="solid", bd=1, highlightthickness=0,
+                  padx=10, pady=6, cursor="hand2",
+                  font=(FONT, 7)).pack(side="left", padx=(8, 0))
+
+        self.search_entry_actual = entry
+        return entry
+
+    def search_value(self, entry):
+        """Valor real del buscador, sin contar el placeholder."""
+        valor = entry.get().strip()
+        return "" if valor == getattr(entry, "placeholder", None) else valor
+
+    def set_search_text(self, entry, texto):
+        """Restaura el texto de búsqueda sin disparar el filtrado."""
+        entry.delete(0, "end")
+        if texto:
+            entry.insert(0, texto)
+            entry.config(fg=TEXT)
+        else:
+            entry.insert(0, entry.placeholder)
+            entry.config(fg="#9AA5B4")
+
+    def focus_busqueda(self):
+        """Ctrl+F: enfoca el buscador de la vista actual."""
+        entry = getattr(self, "search_entry_actual", None)
+        if entry is None:
+            return
+        try:
+            if not entry.winfo_exists():
+                return
+            entry.focus_set()
+            entry.select_range(0, "end")
+        except tk.TclError:
+            return
+        return "break"
+
+    def empty_state(self, parent, mensaje):
+        """Mensaje amigable cuando una búsqueda no devuelve resultados."""
+        tk.Label(parent, text="⌕", bg=WHITE, fg="#C4CBD5",
+                 font=(FONT, 22)).pack(pady=(35, 4))
+        tk.Label(parent, text=mensaje, bg=WHITE, fg=MUTED,
+                 font=(FONT, 9)).pack(pady=(0, 35))
+
     def proximas_citas(self, citas, limite=5):
         """Ordena las citas por fecha y hora usando una ColaPrioridad.
 
@@ -646,25 +738,55 @@ class App(tk.Tk):
 
     def show_pacientes(self):
         self.clear(); self.set_active("pacientes", "Pacientes")
-        ps = pacientes.cargar_pacientes()
         self.title_row("Pacientes", "Registro y gestión de pacientes",
                        "＋ Registrar paciente", self.show_nuevo_paciente)
-        panel = self.card(self.content); panel.pack(fill="both", expand=True)
-        self.panel_header(panel, "Pacientes registrados", f"{len(ps)} registros")
-        cols=("Paciente","Documento","Edad","Sexo","Teléfono","Sangre","Acción")
-        tree=ttk.Treeview(panel,columns=cols,show="headings")
-        for c,w in zip(cols,(250,190,70,90,120,100,54)):
-            tree.heading(c,text="×" if c=="Acción" else c.upper())
-            tree.column(c,width=w,anchor="center" if c=="Acción" else "w",
-                        stretch=c!="Acción")
-        for i,p in enumerate(ps):
+        consulta = getattr(self, "pacientes_query", "")
+        entry = self.search_bar(
+            self.content,
+            "Buscar por nombre, documento, teléfono o correo…",
+            self.filter_pacientes,
+        )
+        self.set_search_text(entry, consulta)
+        self.pacientes_panel = self.card(self.content)
+        self.pacientes_panel.pack(fill="both", expand=True)
+        self.filter_pacientes(consulta)
+
+    def filter_pacientes(self, texto=None):
+        if texto is None:
+            texto = self.search_value(self.search_entry_actual)
+        self.pacientes_query = texto
+        resultado = pacientes.buscar_pacientes(texto)
+
+        panel = self.pacientes_panel
+        for child in panel.winfo_children():
+            child.destroy()
+        self.panel_header(
+            panel, "Pacientes registrados",
+            f"{len(resultado)} resultado(s) · {resultado.algoritmo}",
+        )
+        if not resultado.elementos:
+            self.pacientes_datos = []
+            self.empty_state(
+                panel, f"No se encontraron pacientes para «{texto}»."
+            )
+            return
+
+        self.pacientes_datos = resultado.elementos
+        cols = ("Paciente", "Documento", "Edad", "Sexo", "Teléfono", "Sangre", "Acción")
+        tree = ttk.Treeview(panel, columns=cols, show="headings")
+        for c, w in zip(cols, (250, 190, 70, 90, 120, 100, 54)):
+            tree.heading(c, text="×" if c == "Acción" else c.upper())
+            tree.column(c, width=w, anchor="center" if c == "Acción" else "w",
+                        stretch=c != "Acción")
+        for i, p in enumerate(self.pacientes_datos):
             tree.insert("", "end", values=(
-                f'{p["nombre"]} {p["apellido"]}',p["documento"],p["edad"],
-                p["sexo"],p["telefono"],p["tipo_sangre"],"×"), iid=str(i))
-        tree.pack(fill="both",expand=True,padx=10,pady=(0,10))
+                f'{p["nombre"]} {p["apellido"]}', p["documento"], p["edad"],
+                p["sexo"], p["telefono"], p["tipo_sangre"], "×"), iid=str(i))
+        tree.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         tree.bind(
             "<Button-1>",
-            lambda event: self.eliminar_paciente_desde_fila(tree, ps, event),
+            lambda event: self.eliminar_paciente_desde_fila(
+                tree, self.pacientes_datos, event),
         )
 
     def eliminar_paciente_desde_fila(self, tree, pacientes_lista, event):
@@ -709,22 +831,53 @@ class App(tk.Tk):
 
     def show_medicos(self):
         self.clear(); self.set_active("medicos", "Médicos")
-        ms = medicos.cargar_medicos()
         self.title_row("Médicos", "Profesionales registrados en el sistema",
                        "＋ Registrar médico", self.show_nuevo_medico)
-        container=tk.Frame(self.content,bg=BG); container.pack(fill="both",expand=True)
-        for i,m in enumerate(ms):
-            card=self.card(container); card.grid(row=i//2,column=i%2,sticky="nsew",padx=6,pady=6)
-            container.grid_columnconfigure(i%2,weight=1)
-            tk.Label(card,text="✚",bg=BLUE_LIGHT,fg=BLUE,font=(FONT,15,"bold"),
-                     width=3,height=2).pack(side="left",padx=14,pady=16)
-            info=tk.Frame(card,bg=WHITE); info.pack(side="left",fill="both",expand=True,pady=15)
-            tk.Label(info,text=f'{m["nombre"]} {m["apellido"]}',bg=WHITE,fg=TEXT,
-                     font=(FONT,11,"bold")).pack(anchor="w")
-            tk.Label(info,text=m["especialidad"],bg=WHITE,fg=BLUE,
-                     font=(FONT,8)).pack(anchor="w",pady=3)
-            tk.Label(info,text=f'Consultorio {m["consultorio"]} · {m["horario"]}',
-                     bg=WHITE,fg=MUTED,font=(FONT,8)).pack(anchor="w")
+        consulta = getattr(self, "medicos_query", "")
+        entry = self.search_bar(
+            self.content,
+            "Buscar por nombre, especialidad, consultorio o documento…",
+            self.filter_medicos,
+        )
+        self.set_search_text(entry, consulta)
+        self.medicos_container = tk.Frame(self.content, bg=BG)
+        self.medicos_container.pack(fill="both", expand=True)
+        self.filter_medicos(consulta)
+
+    def filter_medicos(self, texto=None):
+        if texto is None:
+            texto = self.search_value(self.search_entry_actual)
+        self.medicos_query = texto
+        resultado = medicos.buscar_medicos(texto)
+
+        contenedor = self.medicos_container
+        for child in contenedor.winfo_children():
+            child.destroy()
+        tk.Label(contenedor,
+                 text=f"{len(resultado)} resultado(s) · {resultado.algoritmo}",
+                 bg=BG, fg=MUTED, font=(FONT, 8)).pack(anchor="w", pady=(0, 8))
+        if not resultado.elementos:
+            tk.Label(contenedor, text=f"No se encontraron médicos para «{texto}».",
+                     bg=BG, fg=MUTED, font=(FONT, 10)).pack(pady=40)
+            return
+
+        grid = tk.Frame(contenedor, bg=BG)
+        grid.pack(fill="both", expand=True)
+        for i, m in enumerate(resultado.elementos):
+            card = self.card(grid)
+            card.grid(row=i//2, column=i%2, sticky="nsew", padx=6, pady=6)
+            grid.grid_columnconfigure(i % 2, weight=1)
+            tk.Label(card, text="✚", bg=BLUE_LIGHT, fg=BLUE,
+                     font=(FONT, 15, "bold"), width=3,
+                     height=2).pack(side="left", padx=14, pady=16)
+            info = tk.Frame(card, bg=WHITE)
+            info.pack(side="left", fill="both", expand=True, pady=15)
+            tk.Label(info, text=f'{m["nombre"]} {m["apellido"]}', bg=WHITE, fg=TEXT,
+                     font=(FONT, 11, "bold")).pack(anchor="w")
+            tk.Label(info, text=m["especialidad"], bg=WHITE, fg=BLUE,
+                     font=(FONT, 8)).pack(anchor="w", pady=3)
+            tk.Label(info, text=f'Consultorio {m["consultorio"]} · {m["horario"]}',
+                     bg=WHITE, fg=MUTED, font=(FONT, 8)).pack(anchor="w")
             tk.Button(
                 card, text="×", command=lambda medico=m: self.eliminar_medico(medico),
                 bg=WHITE, fg=RED, activebackground=RED_BG, relief="flat",
@@ -763,26 +916,72 @@ class App(tk.Tk):
 
     def show_citas(self):
         self.clear(); self.set_active("citas", "Todas las Citas")
-        cs=citas.cargar_citas()
         self.title_row("Todas las Citas", "Consulta y seguimiento de citas médicas",
                        "＋ Agendar cita", self.show_nueva_cita)
-        tabs=tk.Frame(self.content,bg=BG); tabs.pack(fill="x",pady=(0,12))
-        self.current_filter=tk.StringVar(value="Todas")
-        for f in ("Todas","Pendiente","En espera","Realizada","Cancelada"):
-            tk.Button(tabs,text=f,command=lambda x=f:self.filter_citas(x),
-                      relief="flat",bd=0,padx=12,pady=6,
-                      bg=BLUE if f=="Todas" else WHITE,
-                      fg="white" if f=="Todas" else "#778392",
-                      font=(FONT,8)).pack(side="left",padx=(0,4))
-        self.citas_panel=self.card(self.content); self.citas_panel.pack(fill="both",expand=True)
-        self.filter_citas("Todas")
+        consulta = getattr(self, "citas_query", "")
+        entry = self.search_bar(
+            self.content,
+            "Buscar por paciente, médico, fecha (dd/mm/aaaa), motivo o estado…",
+            self.buscar_citas_ui,
+        )
+        self.set_search_text(entry, consulta)
+
+        filtro_inicial = (
+            self.current_filter.get()
+            if getattr(self, "current_filter", None) is not None
+            else "Todas"
+        )
+        self.current_filter = tk.StringVar(value=filtro_inicial)
+        tabs = tk.Frame(self.content, bg=BG)
+        tabs.pack(fill="x", pady=(0, 12))
+        self.tab_buttons = {}
+        for f in ("Todas", "Pendiente", "En espera", "Realizada", "Cancelada"):
+            btn = tk.Button(tabs, text=f, command=lambda x=f: self.filter_citas(x),
+                            relief="flat", bd=0, padx=12, pady=6,
+                            bg=WHITE, fg="#778392", font=(FONT, 8))
+            btn.pack(side="left", padx=(0, 4))
+            self.tab_buttons[f] = btn
+        self.citas_panel = self.card(self.content)
+        self.citas_panel.pack(fill="both", expand=True)
+        self.filter_citas(filtro_inicial)
+
+    def buscar_citas_ui(self, texto):
+        self.citas_query = texto
+        self.filter_citas(self.current_filter.get())
 
     def filter_citas(self, filtro):
-        for child in self.citas_panel.winfo_children(): child.destroy()
-        cs=citas.cargar_citas()
-        if filtro!="Todas": cs=[c for c in cs if c.get("estado") == filtro]
-        self.panel_header(self.citas_panel,"Citas registradas",filtro)
-        self.citas_tree(self.citas_panel,cs,allow_delete=True)
+        self.current_filter.set(filtro)
+        for nombre, btn in getattr(self, "tab_buttons", {}).items():
+            activo = nombre == filtro
+            btn.configure(bg=BLUE if activo else WHITE,
+                          fg="white" if activo else "#778392")
+
+        texto = getattr(self, "citas_query", "")
+        resultado = citas.buscar_citas(
+            texto, None if filtro == "Todas" else filtro
+        )
+
+        panel = self.citas_panel
+        for child in panel.winfo_children():
+            child.destroy()
+        self.panel_header(
+            panel, "Citas registradas",
+            f"{filtro} · {len(resultado)} resultado(s) · {resultado.algoritmo}",
+        )
+        if not resultado.elementos:
+            self.citas_datos = []
+            if texto:
+                mensaje = (
+                    f"No se encontraron citas para «{texto}» "
+                    f"con el filtro {filtro}."
+                )
+            else:
+                mensaje = f"No hay citas en el estado {filtro}."
+            self.empty_state(panel, mensaje)
+            return
+
+        self.citas_datos = resultado.elementos
+        self.citas_tree(panel, self.citas_datos, allow_delete=True)
 
     def eliminar_cita(self, cita):
         estado = cita.get("estado","Pendiente")

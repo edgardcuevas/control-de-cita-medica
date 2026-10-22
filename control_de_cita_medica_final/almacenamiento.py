@@ -3,6 +3,20 @@ import os
 import tempfile
 
 
+def firma_archivo(ruta):
+    """Firma liviana del archivo para invalidar índices en memoria.
+
+    Devuelve ``(mtime_ns, tamaño)`` o ``None`` si el archivo todavía no
+    existe. Si el archivo cambia por fuera de la aplicación, la próxima
+    búsqueda reconstruye su índice automáticamente.
+    """
+    try:
+        estado = os.stat(ruta)
+    except OSError:
+        return None
+    return (estado.st_mtime_ns, estado.st_size)
+
+
 def cargar_json_lista(ruta):
     try:
         with open(ruta, "r", encoding="utf-8") as archivo:
