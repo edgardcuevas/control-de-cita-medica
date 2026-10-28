@@ -1,0 +1,4 @@
+[2026-10-28 08:03:07] Agendar cita - cita
+[2026-10-28 08:05:03] Marcar cita como realizada - cita
+[2026-10-28 08:10:56] Registrar paciente - paciente
+[2026-10-28 08:16:34] Registrar médico - medico
