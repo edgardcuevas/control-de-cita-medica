@@ -94,7 +94,7 @@ def buscar_citas(texto="", estado=None, registros=None):
 
     consulta = busquedas.normalizar(texto)
     if not consulta:
-        return busquedas.ResultadoBusqueda(filtrados, "Listado", 0)
+        return busquedas.crear_resultado(filtrados, "Listado", 0)
 
     fecha_iso = _fecha_iso(texto)
     if fecha_iso:
@@ -105,7 +105,7 @@ def buscar_citas(texto="", estado=None, registros=None):
         posiciones, comparaciones = busquedas.busqueda_por_rango(
             indice, fecha_iso, fecha_iso
         )
-        return busquedas.ResultadoBusqueda(
+        return busquedas.crear_resultado(
             [filtrados[posicion] for posicion in posiciones],
             "Binaria (fecha)",
             comparaciones,
@@ -129,7 +129,7 @@ def buscar_por_fecha(desde, hasta, registros=None):
     iso_desde = _fecha_iso(desde)
     iso_hasta = _fecha_iso(hasta)
     if not iso_desde or not iso_hasta:
-        return busquedas.ResultadoBusqueda([], "Binaria (fecha)", 0)
+        return busquedas.crear_resultado([], "Binaria (fecha)", 0)
     if iso_desde > iso_hasta:
         iso_desde, iso_hasta = iso_hasta, iso_desde
 
@@ -141,7 +141,7 @@ def buscar_por_fecha(desde, hasta, registros=None):
     posiciones, comparaciones = busquedas.busqueda_por_rango(
         indice, iso_desde, iso_hasta
     )
-    return busquedas.ResultadoBusqueda(
+    return busquedas.crear_resultado(
         [registros[posicion] for posicion in posiciones],
         "Binaria (fecha)",
         comparaciones,
@@ -155,9 +155,9 @@ def buscar_por_espacio(medico, fecha, hora, registros=None):
     clave = esperas.clave_espacio(
         {"medico": medico, "fecha": fecha, "hora": hora}
     )
-    pares = tabla.buscar_todos(clave)
+    pares = busquedas.hash_buscar_todos(tabla, clave)
     pares.sort(key=lambda par: par[1])
-    return busquedas.ResultadoBusqueda(
+    return busquedas.crear_resultado(
         [par[0] for par in pares],
         "Hash (espacio)",
         max(1, len(pares)),
@@ -227,15 +227,15 @@ def _foto_fila(registros, espacio):
 
 
 def _promover_siguiente(registros, espacio):
-    """Saca la primera cita de la Cola de espera y la pone en el espacio.
+    """Saca la primera cita de la fila FIFO de espera y la pone en el espacio.
 
     Devuelve la instantánea de lo cambiado (para poder deshacerlo) o None si
     la fila estaba vacía.
     """
     cola = esperas.cola_espera(registros, espacio)
-    if cola.esta_vacia():
+    if not cola:
         return None
-    siguiente = cola.primero()
+    siguiente = cola[0]
     for indice, cita in enumerate(registros):
         if cita is siguiente:
             promocion = {
@@ -352,7 +352,8 @@ def cancelar_cita(cita):
                 "fila_antes": fila_antes,
             },
         )
-        return promocion
+        # La fila avanza: se devuelve la cita promovida (o None si no había).
+        return registros[promocion["posicion"]] if promocion else None
     return None
 
 

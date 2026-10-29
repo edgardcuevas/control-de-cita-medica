@@ -13,5 +13,10 @@
     "email": "juan123@test.com",
     "salt": "7d10963a3e8e33ea8ea1a3f4520eecba",
     "password_hash": "3475ae13581970221fb0b402bdc82c72f1f50055c5cd28ab6c1350367c2daa94"
+  },
+  {
+    "email": "prueba123@test.com",
+    "salt": "13ad48cb0802dc2847cc4fc0a9563f7b",
+    "password_hash": "bbdb584f67ce83f0971b0c815265b349ef8c9d7b913823249bafa2d56328265c"
   }
 ]

@@ -70,7 +70,7 @@ def _indice_actual():
 
 def buscar_usuario(email):
     """Búsqueda exacta de una cuenta por correo con tabla hash."""
-    par = _indice_actual().buscar(str(email).strip().lower())
+    par = busquedas.hash_buscar(_indice_actual(), str(email).strip().lower())
     return par[0] if par else None
 
 

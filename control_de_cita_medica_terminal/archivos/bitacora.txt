@@ -2,3 +2,10 @@
 [2026-10-28 08:05:03] Marcar cita como realizada - cita
 [2026-10-28 08:10:56] Registrar paciente - paciente
 [2026-10-28 08:16:34] Registrar médico - medico
+[2026-10-28 20:30:20] Agendar cita - cita
+[2026-10-28 20:34:31] Registrar paciente - paciente
+[2026-10-28 20:34:42] Acción deshecha - Registrar paciente
+[2026-10-28 20:36:56] Registrar paciente - paciente
+[2026-10-28 20:40:02] Registrar médico - medico
+[2026-10-28 20:46:46] Agendar cita - cita
+[2026-10-28 20:47:29] Acción deshecha - Agendar cita

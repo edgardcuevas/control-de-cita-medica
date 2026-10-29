@@ -2,14 +2,12 @@
 
 Un "espacio" es la terna (médico, fecha, hora). Solo puede ocuparlo una cita
 activa. Cuando ese espacio ya está tomado, las citas siguientes no se pierden:
-entran en una Cola y quedan en estado "En espera", numeradas por orden de
+entran en una fila FIFO y quedan en estado "En espera", numeradas por orden de
 llegada. Cuando la cita activa se completa o se cancela, la primera de la fila
-sale de la Cola y pasa a ocupar el espacio.
+sale de la fila y pasa a ocupar el espacio.
 
 Este módulo no escribe en disco: solo calcula. Quien persiste es citas.py.
 """
-from estructuras import Cola
-
 #: Estado de una cita que quedó en la fila detrás de otra.
 ESTADO_ESPERA = "En espera"
 
@@ -46,11 +44,8 @@ def en_espera_del_espacio(citas, espacio):
 
 
 def cola_espera(citas, espacio):
-    """Cola FIFO con las citas EN ESPERA de un espacio, en orden de llegada."""
-    cola = Cola()
-    for cita in en_espera_del_espacio(citas, espacio):
-        cola.encolar(cita)
-    return cola
+    """Lista FIFO de citas en espera, en orden de llegada."""
+    return en_espera_del_espacio(citas, espacio)
 
 
 def total_en_espera(citas, espacio):

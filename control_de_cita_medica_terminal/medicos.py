@@ -61,13 +61,13 @@ def _indice_actual():
 
 def buscar_por_documento(documento):
     """Búsqueda exacta por documento con tabla hash: O(1) promedio."""
-    par = _indice_actual().buscar(documento)
+    par = busquedas.hash_buscar(_indice_actual(), documento)
     return par[0] if par else None
 
 
 def _buscar_par_documento(documento):
     """Devuelve ``(médico, índice_en_el_archivo)`` o None."""
-    return _indice_actual().buscar(documento)
+    return busquedas.hash_buscar(_indice_actual(), documento)
 
 
 def buscar_medicos(texto, registros=None):
@@ -81,15 +81,15 @@ def buscar_medicos(texto, registros=None):
     consulta = busquedas.normalizar(texto)
 
     if not consulta:
-        return busquedas.ResultadoBusqueda(registros, "Listado", 0)
+        return busquedas.crear_resultado(registros, "Listado", 0)
 
     if " " not in consulta and busquedas.parece_documento(consulta):
         if usar_cache:
             par = _buscar_par_documento(consulta)
         else:
-            par = crear_indice(registros).buscar(consulta)
+            par = busquedas.hash_buscar(crear_indice(registros), consulta)
         if par:
-            return busquedas.ResultadoBusqueda([par[0]], "Hash (documento)", 1)
+            return busquedas.crear_resultado([par[0]], "Hash (documento)", 1)
 
     terminos = consulta.split()
 
@@ -120,7 +120,8 @@ def registrar_medico(datos):
 
 def eliminar_medico(documento):
     registros = cargar_json_lista(ARCHIVO)
-    par = busquedas.construir_hash(registros, "documento").buscar(documento)
+    indice = busquedas.construir_hash(registros, "documento")
+    par = busquedas.hash_buscar(indice, documento)
     if par is None:
         return False
     medico, posicion = par

@@ -42,5 +42,16 @@
         "especialidad": "neurocirujano",
         "consultorio": "1",
         "horario": "7:00 - 17:00"
+    },
+    {
+        "documento": "086554463221Q",
+        "nombre": "Daniel",
+        "apellido": "Venjur",
+        "telefono": "8899900",
+        "correo": "venjur@test.com",
+        "modulo": "10",
+        "especialidad": "pediatra",
+        "consultorio": "4",
+        "horario": "7:00 a 14:00"
     }
 ]

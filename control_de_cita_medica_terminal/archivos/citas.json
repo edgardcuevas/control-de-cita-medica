@@ -37,5 +37,18 @@
         "motivo": "trasplante de riñon",
         "observaciones": "tiene un riñon malo",
         "estado": "Realizada"
+    },
+    {
+        "paciente": "Maria Esperanza Guerrero Mendez",
+        "documento_paciente": "085-110886-4432D",
+        "medico": "Juan Armando Cerrano",
+        "especialidad": "cirujano",
+        "modulo": "modulo 5",
+        "fecha": "22/11/2026",
+        "hora": "9:00",
+        "tipo": "presencial",
+        "motivo": "intervencion",
+        "observaciones": "ninguna",
+        "estado": "Pendiente"
     }
 ]

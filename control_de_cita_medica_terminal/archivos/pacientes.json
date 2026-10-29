@@ -50,5 +50,18 @@
         "correo": "elhood18@gmail.com",
         "tipo_sangre": "o+",
         "seguro_medico": "no tiene"
+    },
+    {
+        "documento": "086123243223D",
+        "nombre": "Estefanny",
+        "apellido": "Gutierres",
+        "edad": 20,
+        "sexo": "femenino",
+        "fecha_nacimiento": "07/12/2005",
+        "telefono": "76543211",
+        "direccion": "URB San Juna 1C.N 1C.E 25VRS.N El Viejo, chinandega",
+        "correo": "estafanny@test.com",
+        "tipo_sangre": "o-",
+        "seguro_medico": "no tiene"
     }
 ]

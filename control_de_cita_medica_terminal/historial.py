@@ -4,7 +4,7 @@ import os
 import tempfile
 from datetime import datetime
 
-from estructuras import Pila, Cola
+import estructuras
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "archivos")
@@ -16,56 +16,58 @@ LIMITE_PILA = 25
 #: Cuantas lineas de bitacora se acumulan antes de volcar a disco.
 LIMITE_COLA = 10
 
-_pila = Pila()
-_cola = Cola()
+_pila = estructuras.pila_crear()
+_cola = estructuras.cola_crear()
 
 
 # ---------------------------------------------------------------- Pila
 
 def registrar_accion(etiqueta, instantanea):
-    _pila.apilar({
+    estructuras.pila_apilar(_pila, {
         "etiqueta": etiqueta,
         "instantanea": instantanea,
         "marca": datetime.now().isoformat(timespec="seconds"),
     })
-    while _pila.tamano() > LIMITE_PILA:
-        _pila.desapilar()
+    # Si se supera el limite se descarta la accion mas antigua (el fondo de
+    # la pila), nunca la que se acaba de registrar.
+    while estructuras.pila_tamano(_pila) > LIMITE_PILA:
+        del _pila[0]
     _persistir()
     _encolar_bitacora(etiqueta, instantanea.get("entidad", ""))
 
 
 def deshacer():
     """Desapila y devuelve la ultima instantanea, o ``None`` si no hay ninguna."""
-    if _pila.esta_vacia():
+    if estructuras.pila_esta_vacia(_pila):
         return None
-    entrada = _pila.desapilar()
+    entrada = estructuras.pila_desapilar(_pila)
     _persistir()
     return entrada
 
 
 def hay_pendientes():
     """True si hay alguna accion que todavia se puede deshacer."""
-    return not _pila.esta_vacia()
+    return not estructuras.pila_esta_vacia(_pila)
 
 
 def etiqueta_pendiente():
     """Devuelve la etiqueta de la proxima accion a deshacer, o ``None``."""
-    if _pila.esta_vacia():
+    if estructuras.pila_esta_vacia(_pila):
         return None
-    return _pila.cima()["etiqueta"]
+    return estructuras.pila_cima(_pila)["etiqueta"]
 
 
 def limpiar():
     """Vacia la pila de historial."""
-    while not _pila.esta_vacia():
-        _pila.desapilar()
+    while not estructuras.pila_esta_vacia(_pila):
+        estructuras.pila_desapilar(_pila)
     _persistir()
 
 
 def _persistir():
     """Guarda la pila en archivos/historial.json de forma atomica."""
     os.makedirs(DATA_DIR, exist_ok=True)
-    datos = _pila.volcar()
+    datos = estructuras.pila_volcar(_pila)
     fd, temporal = tempfile.mkstemp(prefix="historial_", suffix=".tmp", dir=DATA_DIR)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as archivo:
@@ -89,7 +91,7 @@ def _cargar():
         return
     for entrada in reversed(datos[-LIMITE_PILA:]):
         if isinstance(entrada, dict) and "etiqueta" in entrada and "instantanea" in entrada:
-            _pila.apilar(entrada)
+            estructuras.pila_apilar(_pila, entrada)
 
 
 # ---------------------------------------------------------------- Cola
@@ -100,19 +102,22 @@ def registrar_bitacora(accion, detalle=""):
 
 
 def _encolar_bitacora(accion, detalle=""):
-    _cola.encolar(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {accion}"
-                  + (f" - {detalle}" if detalle else ""))
-    while _cola.tamano() >= LIMITE_COLA:
+    estructuras.cola_encolar(
+        _cola,
+        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {accion}"
+        + (f" - {detalle}" if detalle else ""),
+    )
+    while estructuras.cola_tamano(_cola) >= LIMITE_COLA:
         _volcar_bitacora()
 
 
 def _volcar_bitacora():
     """Vacia la Cola escribiendo todas sus lineas pendientes en bitacora.txt."""
-    if _cola.esta_vacia():
+    if estructuras.cola_esta_vacia(_cola):
         return
     lineas = []
-    while not _cola.esta_vacia():
-        lineas.append(_cola.desencolar())
+    while not estructuras.cola_esta_vacia(_cola):
+        lineas.append(estructuras.cola_desencolar(_cola))
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(BITACORA_FILE, "a", encoding="utf-8") as archivo:
         archivo.write("\n".join(lineas) + "\n")

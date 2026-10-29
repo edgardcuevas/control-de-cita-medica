@@ -40,33 +40,13 @@ def clave_fecha(texto):
         return "9999-99-99"
 
 
-class ResultadoBusqueda:
-
-
-    __slots__ = ("elementos", "algoritmo", "comparaciones")
-
-    def __init__(self, elementos=None, algoritmo="Listado", comparaciones=0):
-        self.elementos = list(elementos or [])
-        self.algoritmo = algoritmo
-        self.comparaciones = comparaciones
-
-    def __len__(self):
-        return len(self.elementos)
-
-    def __iter__(self):
-        return iter(self.elementos)
-
-    def __getitem__(self, indice):
-        return self.elementos[indice]
-
-    def __bool__(self):
-        return bool(self.elementos)
-
-    def __repr__(self):
-        return (
-            f"ResultadoBusqueda({len(self.elementos)} elementos, "
-            f"{self.algoritmo!r}, {self.comparaciones} comparaciones)"
-        )
+def crear_resultado(elementos=None, algoritmo="Listado", comparaciones=0):
+    """Construye un resultado de búsqueda con un diccionario simple."""
+    return {
+        "elementos": list(elementos or []),
+        "algoritmo": algoritmo,
+        "comparaciones": comparaciones,
+    }
 
 
 
@@ -78,7 +58,7 @@ def busqueda_secuencial(registros, criterio):
         comparaciones += 1
         if criterio(registro):
             encontrados.append(registro)
-    return ResultadoBusqueda(encontrados, "Secuencial", comparaciones)
+    return crear_resultado(encontrados, "Secuencial", comparaciones)
 
 
 # ---------------------------------------------------------------------------
@@ -169,158 +149,125 @@ def busqueda_por_prefijo(indice, prefijo):
     return posiciones, comparaciones
 
 
-class TablaHash:
-
-
-    def __init__(self, capacidad=17):
-        self._capacidad = self._siguiente_primo(max(3, int(capacidad)))
-        self._cubetas = [[] for _ in range(self._capacidad)]
-        self._tamano = 0
-        self.colisiones = 0
-
-    @staticmethod
-    def _es_primo(numero):
-        if numero < 2:
+def _es_primo(numero):
+    if numero < 2:
+        return False
+    if numero % 2 == 0:
+        return numero == 2
+    divisor = 3
+    while divisor * divisor <= numero:
+        if numero % divisor == 0:
             return False
-        if numero % 2 == 0:
-            return numero == 2
-        divisor = 3
-        while divisor * divisor <= numero:
-            if numero % divisor == 0:
+        divisor += 2
+    return True
+
+
+def _siguiente_primo(numero):
+    while not _es_primo(numero):
+        numero += 1
+    return numero
+
+
+def _hash_normalizada(tabla, clave_normalizada):
+    valor = 5381
+    for caracter in clave_normalizada:
+        valor = ((valor * 33) + ord(caracter)) & 0xFFFFFFFF
+    return valor % tabla["capacidad"]
+
+
+def crear_tabla_hash(capacidad=17):
+    capacidad = _siguiente_primo(max(3, int(capacidad)))
+    return {
+        "capacidad": capacidad,
+        "cubetas": [[] for _ in range(capacidad)],
+        "tamano": 0,
+        "colisiones": 0,
+    }
+
+
+def _rehash(tabla):
+    anteriores = tabla["cubetas"]
+    tabla["capacidad"] = _siguiente_primo(tabla["capacidad"] * 2 + 1)
+    tabla["cubetas"] = [[] for _ in range(tabla["capacidad"])]
+    tabla["tamano"] = 0
+    tabla["colisiones"] = 0
+    for cubeta in anteriores:
+        for clave, valor in cubeta:
+            posicion = _hash_normalizada(tabla, clave)
+            if tabla["cubetas"][posicion]:
+                tabla["colisiones"] += 1
+            tabla["cubetas"][posicion].append((clave, valor))
+            tabla["tamano"] += 1
+
+
+def _insertar(tabla, clave, valor, permitir_repetidos=False, solo_ausente=False):
+    clave_normalizada = _texto_clave(clave)
+    posicion = _hash_normalizada(tabla, clave_normalizada)
+    cubeta = tabla["cubetas"][posicion]
+    for indice, (existente, _) in enumerate(cubeta):
+        if existente == clave_normalizada:
+            if permitir_repetidos:
+                continue
+            if solo_ausente:
                 return False
-            divisor += 2
-        return True
-
-    @classmethod
-    def _siguiente_primo(cls, numero):
-        while not cls._es_primo(numero):
-            numero += 1
-        return numero
-
-    def _hash_normalizada(self, clave_normalizada):
-        valor = 5381
-        for caracter in clave_normalizada:
-            valor = ((valor * 33) + ord(caracter)) & 0xFFFFFFFF
-        return valor % self._capacidad
-
-    def _verificar_carga(self):
-        if self._tamano > self._capacidad * 0.75:
-            self._rehash()
-
-    def _rehash(self):
-        cubetas_anteriores = self._cubetas
-        self._capacidad = self._siguiente_primo(self._capacidad * 2 + 1)
-        self._cubetas = [[] for _ in range(self._capacidad)]
-        self._tamano = 0
-        self.colisiones = 0
-        for cubeta in cubetas_anteriores:
-            for clave, valor in cubeta:
-                posicion = self._hash_normalizada(clave)
-                if self._cubetas[posicion]:
-                    self.colisiones += 1
-                self._cubetas[posicion].append((clave, valor))
-                self._tamano += 1
-
-    def insertar(self, clave, valor):
-        clave_normalizada = _texto_clave(clave)
-        posicion = self._hash_normalizada(clave_normalizada)
-        cubeta = self._cubetas[posicion]
-        for i, (existente, _) in enumerate(cubeta):
-            if existente == clave_normalizada:
-                cubeta[i] = (clave_normalizada, valor)
-                return False
-        if cubeta:
-            self.colisiones += 1
-        cubeta.append((clave_normalizada, valor))
-        self._tamano += 1
-        self._verificar_carga()
-        return True
-
-    def insertar_si_ausente(self, clave, valor):
-        clave_normalizada = _texto_clave(clave)
-        posicion = self._hash_normalizada(clave_normalizada)
-        cubeta = self._cubetas[posicion]
-        for existente, _ in cubeta:
-            if existente == clave_normalizada:
-                return False
-        if cubeta:
-            self.colisiones += 1
-        cubeta.append((clave_normalizada, valor))
-        self._tamano += 1
-        self._verificar_carga()
-        return True
-
-    def agregar(self, clave, valor):
-        clave_normalizada = _texto_clave(clave)
-        if not clave_normalizada:
+            cubeta[indice] = (clave_normalizada, valor)
             return False
-        posicion = self._hash_normalizada(clave_normalizada)
-        cubeta = self._cubetas[posicion]
-        if cubeta:
-            self.colisiones += 1
-        cubeta.append((clave_normalizada, valor))
-        self._tamano += 1
-        self._verificar_carga()
-        return True
+    if not clave_normalizada and permitir_repetidos:
+        return False
+    if cubeta:
+        tabla["colisiones"] += 1
+    cubeta.append((clave_normalizada, valor))
+    tabla["tamano"] += 1
+    if tabla["tamano"] > tabla["capacidad"] * 0.75:
+        _rehash(tabla)
+    return True
 
-    def buscar(self, clave):
-        clave_normalizada = _texto_clave(clave)
-        posicion = self._hash_normalizada(clave_normalizada)
-        for existente, valor in self._cubetas[posicion]:
-            if existente == clave_normalizada:
-                return valor
-        return None
 
-    def buscar_todos(self, clave):
-        clave_normalizada = _texto_clave(clave)
-        posicion = self._hash_normalizada(clave_normalizada)
-        return [
-            valor for existente, valor in self._cubetas[posicion]
-            if existente == clave_normalizada
-        ]
+def hash_insertar(tabla, clave, valor):
+    return _insertar(tabla, clave, valor)
 
-    def contiene(self, clave):
-        return self.buscar(clave) is not None
 
-    def tamano(self):
-        return self._tamano
+def hash_insertar_si_ausente(tabla, clave, valor):
+    return _insertar(tabla, clave, valor, solo_ausente=True)
 
-    def capacidad(self):
-        return self._capacidad
 
-    def factor_carga(self):
-        return self._tamano / self._capacidad
+def hash_agregar(tabla, clave, valor):
+    return _insertar(tabla, clave, valor, permitir_repetidos=True)
 
-    def __len__(self):
-        return self._tamano
 
-    def __repr__(self):
-        return (
-            f"TablaHash(tamano={self._tamano}, capacidad={self._capacidad}, "
-            f"colisiones={self.colisiones})"
-        )
+def hash_buscar(tabla, clave):
+    clave_normalizada = _texto_clave(clave)
+    posicion = _hash_normalizada(tabla, clave_normalizada)
+    for existente, valor in tabla["cubetas"][posicion]:
+        if existente == clave_normalizada:
+            return valor
+    return None
 
+
+def hash_buscar_todos(tabla, clave):
+    clave_normalizada = _texto_clave(clave)
+    posicion = _hash_normalizada(tabla, clave_normalizada)
+    return [
+        valor for existente, valor in tabla["cubetas"][posicion]
+        if existente == clave_normalizada
+    ]
 
 
 def construir_hash(registros, campo, capacidad=None):
-
     capacidad = capacidad or max(17, len(registros) * 2 + 1)
-    tabla = TablaHash(capacidad)
+    tabla = crear_tabla_hash(capacidad)
     for indice, registro in enumerate(registros):
         clave = _valor_campo(registro, campo)
-        if not _texto_clave(clave):
-            continue
-        tabla.insertar_si_ausente(clave, (registro, indice))
+        if _texto_clave(clave):
+            hash_insertar_si_ausente(tabla, clave, (registro, indice))
     return tabla
 
 
 def construir_hash_multiple(registros, campo, capacidad=None):
-
     capacidad = capacidad or max(17, len(registros) * 2 + 1)
-    tabla = TablaHash(capacidad)
+    tabla = crear_tabla_hash(capacidad)
     for indice, registro in enumerate(registros):
         clave = _valor_campo(registro, campo)
-        if not _texto_clave(clave):
-            continue
-        tabla.agregar(clave, (registro, indice))
+        if _texto_clave(clave):
+            hash_agregar(tabla, clave, (registro, indice))
     return tabla

@@ -36,7 +36,7 @@ como hashes PBKDF2-SHA256 con sal aleatoria.
 
 ## Funciones disponibles
 
-- **Panel de control**: contadores, próximas 5 citas (ColaPrioridad) y filas de espera.
+- **Panel de control**: contadores, próximas 5 citas y filas de espera.
 - **Pacientes**: listado, búsqueda, registro, ficha y eliminación con validación.
 - **Médicos**: listado, búsqueda, registro, ficha y eliminación con validación.
 - **Citas**: filtros por estado, búsqueda por texto o fecha, agendado, detalle,
@@ -44,6 +44,14 @@ como hashes PBKDF2-SHA256 con sal aleatoria.
 - **Deshacer**: revierte altas, eliminaciones y cambios de estado.
 - **Fila de espera**: si un espacio `(médico, fecha, hora)` está ocupado, la nueva
   cita entra en la fila y se promueve sola al liberar el espacio.
+
+## Implementación
+
+La lógica propia está organizada de forma procedimental: se usan funciones y
+listas o diccionarios, sin definir clases propias. Se conservan las búsquedas
+secuencial, binaria, por rango, por prefijo y mediante tabla hash. Las pilas y
+colas se representan con listas; las próximas citas se ordenan con un montículo
+mínimo implementado como funciones.
 
 ## Datos
 
@@ -55,3 +63,6 @@ del sistema están ahí; para respaldarlos basta con copiar esa carpeta.
 ```bash
 python pruebas_busquedas.py
 ```
+
+Las pruebas verifican los algoritmos de búsqueda, la tabla hash y las
+operaciones LIFO, FIFO y de cola de prioridad.
